@@ -2,10 +2,11 @@
 #define MATH_H
 
 #define PI 3.14159265358979323846264338327950288f
-#define Square(x) ((x)*(x))
-#define To_Radian(x) ((x) * PI / 180.0f)
-#define To_Degree(x) ((x) * 180.0f / PI)
+#define SQUARE(x) ((x)*(x))
+#define TO_RAD(x) ((x) * PI / 180.0f)
+#define TO_DEG(x) ((x) * 180.0f / PI)
 #define ABS(x) ((x) < 0 ? (-(x)) : (x))
+#define MIN(x,y) ((x) < (y) ? (y) : (x))
 
 // @todo: 
 // - convert these to column major calculations for the opengl path
@@ -49,7 +50,25 @@ union Vec2 {
 
     return res;
   }
+
+  Vec2 operator-(const r32& scaler) const {
+    Vec2 res;
+    res.x = this->x - scaler;
+    res.y = this->y - scaler;
+
+    return res;
+  }
+
+  Vec2 operator-(const Vec2& v) const {
+    Vec2 res;
+    res.x = this->x - v.x;
+    res.y = this->y - v.y;
+
+    return res;
+  }
 };
+
+#define V3TOV2(v) (Vec2{((v).x), ((v).y)})
 
 union Vec3 {
 	struct {
@@ -78,6 +97,12 @@ union Mat4 {
 
 // ==== Vec2 ====
 
+r32 dot2v(Vec2 a, Vec2 b) 
+{
+  r32 res = (a.x*b.x)+(a.y*b.y);
+  return res;
+}
+
 Vec2 mul2vf(Vec2 vec, r32 scaler)
 {
   Vec2 res;
@@ -95,6 +120,19 @@ Vec2 div2vf(Vec2 vec, r32 scaler)
   res.y = vec.y / scaler;
 
   return res;
+}
+
+r32 magnitude2v(Vec2 v)
+{
+	r32 res = sqrtf(SQUARE(v.x) + SQUARE(v.y));
+	return res;
+}
+
+Vec2 normalize2v(Vec2 v)
+{
+	r32 magnitude = magnitude2v(v);
+	Vec2 res = div2vf(v, magnitude);
+	return res;
 }
 
 // ========================================================== Vec3 ==========================================================
@@ -173,7 +211,7 @@ r32 dot_multiply3v(Vec3 a, Vec3 b)
 
 r32 magnitude3v(Vec3 vec)
 {
-	r32 res = sqrtf(Square(vec.x) + Square(vec.y) + Square(vec.z));
+	r32 res = sqrtf(SQUARE(vec.x) + SQUARE(vec.y) + SQUARE(vec.z));
 	return res;
 }
 

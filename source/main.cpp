@@ -8,7 +8,9 @@
 #include FT_FREETYPE_H
 
 /*
-* Project Estimation/Target ~ 1 - 2 months
+* Project Estimation/Target ~ 1 - 2 months (was so off on this) 
+* well, to be fair, if I account for actual time worked, then I was not 
+* so off on my estimate, I think I am still in the estimation range
 * Tasks:
 * DONE:
 * - gravity - very barebones version done
@@ -18,15 +20,16 @@
 *   - decelerate to give impression of sliding
 * - horizontal motion when falling
 *   - inertia-like movement when accelerating prior to falling
-*   - loss of inertia when player was at high speed before sliding off
-*   - small movement when in free fall
+*   - loss of inertia when player was at high speed before 
+*     sliding off and other small movement when in free fall
 *   - movement and deceleration when not moving in free fall
-* TODO:
-* - Platform collision
-*   - Fix collision and make it work for each object
 * - Jumping
-* - Level completion
-* - Level Selection
+* TODO:
+* - Some way to make and define levels
+* - Level completion Object
+* - Implement Broad Phase Collision for efficient collision handling 
+* - Efficient Quad Renderer
+* - Audio
 * - Level Creation
 */
 
@@ -45,21 +48,12 @@ typedef double   r64;
 
 typedef u8       b8;
 
-#define MIN(x,y) ((x) < (y) ? (x) : (y))
-#define R32_MAX ((r32)(size_t) - 1)
-#define R64_MAX ((r64)(size_t) - 1)
-
 #include "math.h"
 
 enum PMoveState {
-  NO_MOVE     = 0,
-  ACCEL       = 1,
-  KEEP        = 2,
-  DECEL       = 3,
-  FALL_FREE   = 4,
-  FALL_NORM   = 5,
-  FALL_KEEP   = 6,
-  FALL_DECEL  = 7
+  NO_MOVE       = 0,
+  MOVE          = 1,
+  FALL_MOVE     = 2,
 };
 
 enum PlatformKey {
@@ -109,22 +103,21 @@ struct Controller {
   b8 move_left;
   b8 move_right;
   b8 jump;
+  b8 toggle_gravity;
+};
+
+struct Rect {
+  Vec2 tl;
+  Vec2 br;
+  Vec2 size;
+  Vec3 position;
 };
 
 struct GameState {
   // player
-  b8 p_jump_status;
-  r32 p_jump_period;
-  r32 p_jumpx;
-  r32 p_jumpy;
-  Vec3 player_position;
-  Vec2 player_size;
-  // floor
-  Vec3 floor_position;
-  Vec2 floor_size;
-  // wall
-  Vec3 wall_position;
-  Vec2 wall_size;
+  Rect player;
+  Rect floor;
+  Rect wall;
 };
 
 u32 gl_shader_program(char* vs, char* fs)
@@ -239,7 +232,7 @@ void gl_draw_colored_quad(
   Vec2 size,
   Vec3 color
 ) {
-  glEnable(GL_DEPTH_TEST);
+  //glEnable(GL_DEPTH_TEST);
   glUseProgram(renderer->cq_sp);
   if (renderer->cq_init == 0)
   {
@@ -446,6 +439,21 @@ void gl_render_text(GLRenderer *renderer, char* text, Vec2 position, r32 size, V
   }
 }
 
+Rect rect(Vec3 position, Vec2 size) {
+  Rect r = {0};
+  r.position = position;
+  r.size = size;
+
+  r.tl.x = position.x - size.x;
+  r.tl.y = position.y + size.y;
+
+  Vec2 br;
+  r.br.x = position.x + size.x;
+  r.br.y = position.y - size.y;
+
+  return r;
+}
+
 int main(int argc, char* argv[])
 {
   u32 scr_width = 1024;
@@ -462,7 +470,8 @@ int main(int argc, char* argv[])
   SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
   
   SDL_Window* window = SDL_CreateWindow("simple platformer",
-                                        SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
+                                        SDL_WINDOWPOS_UNDEFINED, 
+                                        SDL_WINDOWPOS_UNDEFINED,
                                         scr_width, scr_height,
                                         SDL_WINDOW_OPENGL);
   SDL_GLContext context = SDL_GL_CreateContext(window);
@@ -483,18 +492,20 @@ int main(int argc, char* argv[])
   
   size_t read_count;
   u32 quad_sp = gl_shader_program_from_path(
-																						"./source/shaders/colored_quad.vs.glsl", 
-																						"./source/shaders/colored_quad.fs.glsl"
-																						);
+    "./source/shaders/colored_quad.vs.glsl", 
+    "./source/shaders/colored_quad.fs.glsl"
+  );
   u32 ui_text_sp = gl_shader_program_from_path(
-																							 "./source/shaders/ui_text.vs.glsl",
-																							 "./source/shaders/ui_text.fs.glsl"
-																							 );
+    "./source/shaders/ui_text.vs.glsl",
+    "./source/shaders/ui_text.fs.glsl"
+  );
   u32 quad_vao = gl_setup_colored_quad(quad_sp);
   
   GLRenderer renderer;
   renderer.cq_sp = quad_sp;
   renderer.cq_vao = quad_vao;
+  r32 render_scale = 2.0f;
+  r32 movement_to_render_ratio = 1.5f;
   
   // ==========
   // setup text
@@ -526,17 +537,17 @@ int main(int argc, char* argv[])
   // 2. setup gl text
   // @note: we only support 128 characters, which is the basic ascii set
   renderer.ui_text.chunk_size = 32;
-  renderer.ui_text.pixel_size = 512;
+  renderer.ui_text.pixel_size = 32*render_scale;
   renderer.ui_text.sp = ui_text_sp;
   renderer.ui_text.transforms = (Mat4*)malloc(
-																							renderer.ui_text.chunk_size*sizeof(Mat4)
-																							);
+    renderer.ui_text.chunk_size*sizeof(Mat4)
+  );
   renderer.ui_text.char_indexes = (s32*)malloc(
-																							 renderer.ui_text.chunk_size*sizeof(s32)
-																							 );
+    renderer.ui_text.chunk_size*sizeof(s32)
+  );
   renderer.ui_text.char_map = (TextChar*)malloc(
-																								128*sizeof(TextChar)
-																								);
+    128*sizeof(TextChar)
+  );
   gl_setup_text(&(renderer.ui_text), roboto_font_face);
   
   
@@ -545,39 +556,45 @@ int main(int argc, char* argv[])
   Vec3 preset_up_dir = Vec3{0.0f, 1.0f, 0.0f};
   renderer.cam_update = 1;
   renderer.cam_pos = Vec3{0.0f, 0.0f, 1.0f};
-  renderer.cam_look = camera_look_around(To_Radian(0.0f), -To_Radian(90.0f));
+  renderer.cam_look = camera_look_around(TO_RAD(0.0f), -TO_RAD(90.0f));
   renderer.cam_view = camera_create4m(
     renderer.cam_pos, 
     add3v(renderer.cam_pos, renderer.cam_look), preset_up_dir
   );
   renderer.cam_proj = orthographic_projection4m(
-    0.0f, (r32)scr_width*1.5f, 
-    0.0f, (r32)scr_height*1.5f, 
+    0.0f, (r32)scr_width*render_scale, 
+    0.0f, (r32)scr_height*render_scale, 
     0.1f, 10.0f
   );
-  
-  // ======
-  // player
-  r32 fall_velocity = 3.0f;
-  r32 fall_decel = -6.0f;
-  r32 move_velocity = 6.0f;
-  r32 move_accel = 6.0f;
-  r32 move_decel = -8.0f;
+
+  // @section: gameplay variables
+  r32 fall_accel = 3.0f*movement_to_render_ratio;
+  r32 fall_smooth_decel = -2.0f*movement_to_render_ratio;
+  r32 move_accel = 6.0f*movement_to_render_ratio;
+  r32 freefall_accel = -11.8f*movement_to_render_ratio;
+  r32 jump_force = 6.5f*movement_to_render_ratio;
+  r32 effective_force = 0.0f;
+
   GameState state = {0};
-  state.p_jump_period = 1.0f;
-  state.player_position = Vec3{0.0f, 70.0f, -1.0f};
-  state.player_size = Vec2{40.0f, 40.0f};
-  state.floor_position = Vec3{600.0f, 800.0f, -2.0f};
-  state.floor_size = Vec2{400.0f, 20.0f};
-  state.wall_position = Vec3{170.0f, 100.0f, -1.0f};
-  state.wall_size = Vec2{20.0f, 80.0f};
+  Vec3 player_position = Vec3{0.0f, 70.0f, -1.0f};
+  Vec2 player_size = Vec2{40.0f, 40.0f};
+  state.player = rect(player_position, player_size);
+
+  Vec3 floor_position = Vec3{600.0f, 800.0f, -2.0f};
+  Vec2 floor_size = Vec2{400.0f, 20.0f};
+  state.floor = rect(floor_position, floor_size);
+
+  Vec3 wall_position = Vec3{170.0f, 100.0f, -2.0f};
+  Vec2 wall_size = Vec2{20.0f, 80.0f};
+  state.wall = rect(wall_position, wall_size);
+
   Controller controller = {0};
   r32 key_down_time[5] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
   
   // gravity calculations
   b8 collidex = 0;
   b8 collidey = 0;
-  b8 activate_gravity = 0;
+  b8 is_gravity = 0;
   Vec2 player_move_t = Vec2{0.0f, 0.0f};
   Vec2 player_decel_t = Vec2{0.0f, 0.0f};
   b8 is_player_moving = false;
@@ -588,11 +605,12 @@ int main(int argc, char* argv[])
   Vec2 player_acceleration = Vec2{0.0f, 0.0f};
   Vec2 player_velocity = Vec2{0.0f, 0.0f};
   Vec2 position_displacement = Vec2{0.0f, 0.0f};
-  r32 force_factor = 1.0f;
   PMoveState p_move_state = NO_MOVE;
   Vec2 p_move_dir_old = Vec2{0.0f, 0.0f};
   Vec2 p_move_dir = Vec2{0.0f, 0.0f};
-  
+  Vec2 p_move_dir_curr = Vec2{0.0f, 0.0f};
+  Vec2 p_force = Vec2{0.0f, 0.0f};
+
   b8 cndbrk = 0; // a conditional debug trick in code
   b8 game_running = 1;
   r32 time_prev = SDL_GetTicks64() / 1000.0f;
@@ -603,6 +621,8 @@ int main(int argc, char* argv[])
     time_prev = time_curr;
     time_curr = SDL_GetTicks64() / 1000.0f;
     time_delta = time_curr - time_prev;
+    controller.jump = 0;
+    controller.toggle_gravity = 0;
     SDL_Event ev;
     while(SDL_PollEvent(&ev))
     {
@@ -636,6 +656,10 @@ int main(int argc, char* argv[])
             {
               controller.jump = 1;
             }
+            if (ev.key.keysym.sym == SDLK_g)
+            {
+              controller.toggle_gravity = 1;
+            }
           } break;
         case (SDL_KEYUP):
           {
@@ -666,19 +690,27 @@ int main(int argc, char* argv[])
     }
     
     // @section: input processing
-    // @note: because of how I am handling the different states
-    // of movement, there is a bug where if I change direction
-    // the wrong motion gets considered, that needs to be fixed
-    Vec2 player_force = Vec2{0.0f, 0.0f};
+    if (controller.toggle_gravity)
+    {
+      is_gravity = !is_gravity;
+      player_velocity = Vec2{0.0f, 0.0f};
+      p_move_dir.x = 0.0f;
+      effective_force = 0.0f;
+    }
+    if (controller.jump) {
+      p_force = Vec2{2.0f, 2.0f};
+    }
+    
+    p_move_dir_curr = Vec2{0.0f, 0.0f};
     if (controller.move_up)
     {
-      player_force.y = force_factor;
       p_move_dir.y = 1.0f;
+      p_move_dir_curr.y = 1.0f;
     }
     if (controller.move_down)
     {
-      player_force.y = -force_factor;
       p_move_dir.y = -1.0f;
+      p_move_dir_curr.y = -1.0f;
     }
 
     PlatformKey horizontal_move = PK_NIL;
@@ -694,63 +726,30 @@ int main(int argc, char* argv[])
 
     if (horizontal_move == PK_A && controller.move_left) 
     {
-      player_force.x = -force_factor;
       p_move_dir.x = -1.0f;
+      p_move_dir_curr.x = -1.0f;
       is_player_moving = true;
     } 
     if (horizontal_move == PK_D && controller.move_right) 
     {
-      player_force.x = force_factor;
       p_move_dir.x = 1.0f;
+      p_move_dir_curr.x = 1.0f;
       is_player_moving = true;
     }
 
-    if (controller.jump)
-    {
-      // activate gravity
-      controller.jump = 0;
-      activate_gravity = !activate_gravity;
-      player_velocity = Vec2{0.0f, 0.0f};
-      p_move_dir.x = 0.0f;
-    }
-    
-    b8 was_moving_on_ground = p_move_state == ACCEL || p_move_state == KEEP;
-    if (activate_gravity) {
+    b8 was_moving_on_ground = collidey;
+    if (is_gravity) {
       b8 is_move_dir_changed = p_move_dir.x != p_move_dir_old.x;
       if (!collidey) {
         // fall states
         if (is_player_moving) {
-          if (is_move_dir_changed) {
-            p_move_state = FALL_KEEP;
-          } else if (
-            was_moving_on_ground || p_move_state == FALL_NORM
-          ) {
-            p_move_state = FALL_NORM;
-          } else if (p_move_state != FALL_KEEP) {
-            p_move_state = FALL_KEEP;
-          }        
-        } else {
-          if (p_move_state == NO_MOVE) {
-            p_move_state = FALL_FREE;
-          }
-          if (p_move_state != FALL_FREE) {
-            p_move_state = FALL_DECEL;
-          }        
-        }
+            p_move_state = FALL_MOVE;
+        }       
       } else {
         // standard motion states
         if (is_player_moving) {
-          if (p_move_state != KEEP || is_move_dir_changed) {
-            p_move_state = ACCEL;
-          }         
-        } else {
-          if (p_move_state == FALL_FREE) {
-            p_move_state = NO_MOVE;
-          }
-          if (p_move_state != NO_MOVE) {
-            p_move_state = DECEL;
-          }
-        }
+          p_move_state = MOVE;
+        }      
       }
     }
     
@@ -768,12 +767,77 @@ int main(int argc, char* argv[])
       player_move_t.x = 0.0f;
       player_velocity.x = 0.0f;
     }
-    if (activate_gravity)
+    if (is_gravity)
     {
-      if (!collidey) {
+      // calculate force acting on player
+      if (was_moving_on_ground) {
+        // @note: can I reduce the states here like I did in the falling case
+        // without separate checks
+        if (is_player_moving) {
+          r32 updated_force = effective_force + p_move_dir.x*move_accel*time_delta;
+          updated_force = clampf(
+            updated_force, -move_accel, move_accel
+          );
+          if (controller.jump) {
+          }
+          effective_force = updated_force;
+        } else {
+          r32 force_reducer = 0.0f;
+          if (effective_force > 0.0f) {
+            force_reducer = -move_accel*time_delta;
+          } else if (effective_force < 0.0f) {
+            force_reducer = move_accel*time_delta;
+          }
+          r32 updated_force = effective_force + force_reducer;
+          effective_force = (
+            ABS(updated_force) < 0.5f ? 
+            0.0f : updated_force
+          );
+        }
+      } else {
+          r32 smoothing_force = effective_force;
+          r32 active_force = 0.0f;
+          r32 net_force = 0.0f;
+
+          {
+            // @note: air resistance 
+            // (arbitrary force in opposite direction to reduce speed)
+            // reason: seems that it would work well for the case where
+            // player moves from platform move to free_fall
+            // since the max speed in respective stages is different this can
+            // function as a speed smoother, without too many checks and 
+            // explicit checking
+            b8 is_force_pos = effective_force > 0.0f;
+            b8 is_force_neg = effective_force < 0.0f;
+            r32 force_reducer = 0.0f;
+            if (is_force_pos) {
+              force_reducer = -fall_accel*time_delta;
+            } else if (is_force_neg) {
+              force_reducer = fall_accel*time_delta;
+            }
+            smoothing_force = effective_force + force_reducer;
+            net_force += smoothing_force;
+          } 
+
+          if (is_player_moving) {
+            active_force = p_move_dir.x*fall_accel;
+            r32 interm_total_force = net_force + active_force;
+            if (ABS(interm_total_force) > fall_accel) {
+              r32 deficit = MIN(fall_accel - ABS(net_force), 0.0f);
+              active_force = p_move_dir.x*deficit;
+            }
+            net_force += active_force;
+          }
+          effective_force = net_force;
+      }
+      {
         // vertical motion when falling
         r32 dy1 = player_velocity.y;
-        dy1 = dy1 + (-9.8f)*time_delta;
+        dy1 = dy1 + freefall_accel;
+        if (controller.jump) {
+          dy1 = jump_force;
+        }
+        dy1 = dy1*time_delta;
         player_velocity.y = dy1;
         pd_1.y = dy1;
       }
@@ -787,56 +851,19 @@ int main(int argc, char* argv[])
       if (!collidex) {
         r32 dx1 = player_velocity.x;
         switch (p_move_state) {
-          case ACCEL:
+          case MOVE:
+          case FALL_MOVE:
             {
-              dx1 += move_accel*time_delta*p_move_dir.x;
-            } break;
-          case KEEP:
-            {
-              dx1 = move_velocity*p_move_dir.x;
-            } break;
-          case DECEL:
-            {
-              dx1 += move_decel*time_delta*p_move_dir.x;
-            } break;
-          case FALL_NORM:
-            {
-              if (ABS(player_velocity.x) <= fall_velocity) {
-                dx1 = fall_velocity*p_move_dir.x;
-              } else {
-                dx1 -= 2.0f*time_delta*p_move_dir.x;
-              }
-            } break;
-          case FALL_KEEP:
-            {
-              dx1 = fall_velocity*p_move_dir.x;
-            } break;
-          case FALL_DECEL:
-            {
-              dx1 += fall_decel*time_delta*p_move_dir.x;
+              dx1 = effective_force;
             } break;
           default:
             {
             } break;
         }
         // checks for motion on ground
-        if (ABS(dx1) <= 0.5f && p_move_state == DECEL) {
+        if ( dx1 == 0.0f ) {
+          p_move_dir.x = 0.0f;
           p_move_state = NO_MOVE;
-          p_move_dir.x = 0.0f;
-          dx1 = 0.0f;
-        }
-        if (ABS(dx1) >= move_velocity && was_moving_on_ground) {
-          p_move_state = KEEP;
-        }
-
-        // checks for motion in air
-        if (ABS(dx1) <= fall_velocity && p_move_state == FALL_NORM) {
-          p_move_state = FALL_KEEP;
-        }
-        if (ABS(dx1) <= 0.5f && p_move_state == FALL_DECEL) {
-          p_move_state = FALL_FREE;
-          p_move_dir.x = 0.0f;
-          dx1 = 0.0f;
         }
 
         accel_computed = (dx1 - player_velocity.x)/time_delta;
@@ -846,143 +873,106 @@ int main(int argc, char* argv[])
     }
     else 
     {
-      pd_1 = mul2vf(player_force, 8.0f);
+      pd_1 = mul2vf(p_move_dir_curr, 800.0f*time_delta);
     }
     
     // @section: collision
-    // player
+    Vec3 next_player_position;
+    next_player_position.x = state.player.position.x + pd_1.x;
+    next_player_position.y = state.player.position.y + pd_1.y;
+
+    Rect player_next = rect(next_player_position, state.player.size);
     
-		// @note: 
-    //
-    // Approach 1
-    // 1. check if player colliding with floor using AABB collision
-    // 2. check if player sides colliding with left of floor
-    //  2.1. clamp the player next position with bounds
-    //  (side-effect) => player horizontal velocity sets to 0
-    // 3. check if player sides colliding with right of floor
-    //  3.1. clamp the player next position with bounds
-    //  (side-effect) => player horizontal velocity sets to 0
-    // 4. if neither sides collide then that means it was colliding vertically
-    // (with top or bottom)
-    //  4.1. clamp the player position
-    // 5 if no collision y, update player vertical position
-    //  5.1. if no y collision and also no x collision, update x position
-    //
-    // @verdict:
-    // This absolutely sucks, this is awful and downright insane, still it led
-    // me to the next discovery.
-    //
-    // @todo:
-    // Approach 2
-    // Use surface normals, and direction vectors. Figure out this math part
-    // and how exactly those would be computed or would matter, but the main
-    // point is, that would allow a far better approach to detect collisions than
-    // whatever I am doing right now.
-    
-    Vec2 next_player_position = Vec2{
-      state.player_position.x, 
-      state.player_position.y
-    };
-    next_player_position = next_player_position + pd_1;
-    
-    // calculate_position_bounds player
-    r32 p_left = next_player_position.x - state.player_size.x;
-    r32 p_right = next_player_position.x + state.player_size.x;
-    r32 p_top = next_player_position.y + state.player_size.y;
-    r32 p_bottom = next_player_position.y - state.player_size.y;
-    // calculate_position_bounds floor
-    r32 f_left = state.floor_position.x - state.floor_size.x;
-    r32 f_right = state.floor_position.x + state.floor_size.x;
-    r32 f_top = state.floor_position.y + state.floor_size.y;
-    r32 f_bottom = state.floor_position.y - state.floor_size.y;
-    
-#if leniant_platform_collision_check
-    b8 is_bottom_on_obj_top = (p_bottom <= f_top + 5.0f) && 
-      (p_bottom >= f_top - 5.0f);
-    b8 is_top_on_obj_bottom = (p_top <= f_bottom + 5.0f) && 
-      (p_top >= f_bottom - 5.0f);
-#endif
-    b8 is_bottom_on_obj_top = p_bottom == f_top;
-    b8 is_top_on_obj_bottom = p_top == f_bottom;
-    b8 can_slidex = (p_left < f_right || p_right > f_left) && 
-      (is_bottom_on_obj_top || is_top_on_obj_bottom);
-    
-#if wall_collision_check
-    r32 w_left   = state.wall_position.x - state.wall_size.x;
-    r32 w_right  = state.wall_position.x + state.wall_size.x;
-    r32 w_top    = state.wall_position.y + state.wall_size.y;
-    r32 w_bottom = state.wall_position.y - state.wall_size.y;
-    b8 wall_colliding = !(p_left > w_right || p_right < w_left || p_bottom > w_top || p_top < w_bottom);
-#endif
-    
-    b8 floor_colliding = !(
-      p_left > f_right || p_right < f_left || 
-      p_bottom > f_top || p_top < f_bottom
-    );
-    
-    b8 new_collidex = 0;
-    b8 new_collidey = 0;
-    
-    if (floor_colliding) {
-      // check which side we are colliding with
-      b8 collide_left = p_right <= f_left + 5.0f;
-      b8 collide_right = p_left >= f_right - 5.0f;
-      if (collide_left) {
-        state.player_position.x = clampf(
-          next_player_position.x,
-          0.0f,
-          f_left - state.player_size.x
-        );
-        new_collidex = 1;
-      } else if (collide_right) {
-        state.player_position.x = clampf(
-          next_player_position.x,
-          f_right + state.player_size.x,
-          1.5*scr_width
-        );
-        new_collidex = 1;
-      } else {
-        new_collidey = 1;
+    Rect collision_targets[2] = {state.wall, state.floor};
+    b8 is_collide_x = 0;
+    b8 is_collide_y = 0;
+
+    for (u32 i = 0; i < 2; i++) {
+      Rect target = collision_targets[i];
+      
+      // @func: check_if_player_colliding_with_target
+
+      b8 t_collide_x = 0;
+      // need to adjust player position in case of vertical collisions
+      // so need to check which player side collides
+      b8 t_collide_bottom = 0;
+      b8 t_collide_top = 0;
+
+      r32 prev_top    = state.player.tl.y;
+      r32 prev_left   = state.player.tl.x;
+      r32 prev_bottom = state.player.br.y;
+      r32 prev_right  = state.player.br.x;
+
+      r32 p_top     = player_next.tl.y;
+      r32 p_left    = player_next.tl.x;
+      r32 p_bottom  = player_next.br.y;
+      r32 p_right   = player_next.br.x;
+
+      r32 t_left    = target.tl.x;
+      r32 t_top     = target.tl.y;
+      r32 t_right   = target.br.x;
+      r32 t_bottom  = target.br.y;
+
+      b8 prev_collide_x = !(prev_left > t_right || prev_right < t_left);
+      b8 new_collide_yb = (p_bottom < t_top && p_top > t_top);
+      b8 new_collide_yt = (p_top > t_bottom && p_bottom < t_bottom);
+      if (prev_collide_x && new_collide_yb) {
+        t_collide_top = 1;
       }
-      state.player_position.y = clampf(
-        state.player_position.y, 
-        f_bottom - state.player_size.y, 
-        f_top + state.player_size.y
-      );
-    }
-    if (!new_collidey) {
-      state.player_position.y = next_player_position.y;
-      if (!new_collidex) {
-        state.player_position.x = next_player_position.x;
+      if (prev_collide_x && new_collide_yt) {
+        t_collide_bottom = 1;
       }
+
+      b8 prev_collide_y = !(prev_top < t_bottom || prev_bottom > t_top);
+      b8 new_collide_x = !(p_right < t_left || p_left > t_right);
+      if (prev_collide_y && new_collide_x) {
+        t_collide_x = 1;
+      }
+
+      // @func: update_player_positions_if_sides_colliding
+      if (t_collide_top) {
+        state.player.position.y -= (prev_bottom - t_top - 0.1f);
+      } else if (t_collide_bottom) {
+        state.player.position.y += (t_bottom - prev_top - 0.1f);
+      }
+
+      is_collide_x = is_collide_x || t_collide_x;
+      is_collide_y = is_collide_y || t_collide_top || t_collide_bottom;
+
     }
 
-    if (can_slidex) {
-      state.player_position.x = next_player_position.x;
+    if (!is_collide_x) {
+      state.player.position.x = next_player_position.x;
+
     }
-    collidex = new_collidex;
-    collidey = new_collidey;
+    if (!is_collide_y) {
+      state.player.position.y = next_player_position.y;
+    }
+
+    state.player = rect(state.player.position, state.player.size);
+    collidex = is_collide_x;
+    collidey = is_collide_y;
     
     // output
     glClearColor(0.8f, 0.5f, 0.7f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     
+    // player
+    gl_draw_colored_quad(&renderer, 
+                         state.player.position,            // position
+                         state.player.size,         // size
+                         Vec3{0.45f, 0.8f, 0.2f});
     // floor
     gl_draw_colored_quad(&renderer,
-                         state.floor_position,
-                         state.floor_size,
+                         state.floor.position,
+                         state.floor.size,
                          Vec3{1.0f, 1.0f, 1.0f});
     // wall
     gl_draw_colored_quad(&renderer, 
-                         state.wall_position,
-                         state.wall_size,
+                         state.wall.position,
+                         state.wall.size,
                          Vec3{1.0f, 0.0f, 0.0f});
-    // player
-    gl_draw_colored_quad(&renderer, 
-                         state.player_position,            // position
-                         state.player_size,         // size
-                         Vec3{0.45f, 0.8f, 0.2f});
-    
+
     // render ui text
     gl_render_text(&renderer,
                    "hello sailor!",
@@ -990,7 +980,7 @@ int main(int argc, char* argv[])
                    28.0f,                     // size
                    Vec3{0.0f, 0.0f, 0.0f});   // color
     
-    if (new_collidex || new_collidey)
+    if (is_collide_x || is_collide_y)
     {
       gl_render_text(&renderer,
                      "is colliding",
@@ -1024,37 +1014,17 @@ int main(int argc, char* argv[])
     }
     char move_state_output[50];
     switch(p_move_state) {
-      case ACCEL:
-        {
-          sprintf(move_state_output, "move_dir = ACCEL");
-        } break;
-      case KEEP:
-        {
-          sprintf(move_state_output, "move_dir = KEEP");
-        } break;
-      case DECEL:
-        {
-          sprintf(move_state_output, "move_dir = DECEL");
-        } break;
-      case FALL_NORM:
-        {
-          sprintf(move_state_output, "move_dir = FALL_NORM");
-        } break;
-      case FALL_KEEP:
-        {
-          sprintf(move_state_output, "move_dir = FALL_KEEP");
-        } break;
-      case FALL_DECEL:
-        {
-          sprintf(move_state_output, "move_dir = FALL_DECEL");
-        } break;
       case NO_MOVE:
         {
           sprintf(move_state_output, "move_dir = NO_MOVE");
         } break;
-      case FALL_FREE:
+      case MOVE:
         {
-          sprintf(move_state_output, "move_dir = FALL_FREE");
+          sprintf(move_state_output, "move_dir = MOVE");
+        } break;
+      case FALL_MOVE:
+        {
+          sprintf(move_state_output, "move_dir = FALL_MOVE");
         } break;
       default:
         break;
@@ -1080,19 +1050,13 @@ int main(int argc, char* argv[])
                    28.0f,                      // size
                    Vec3{0.0f, 0.0f, 0.0f});    // color
 
-    sprintf(fmt_buffer, "can_slide = %d", can_slidex);
+    sprintf(fmt_buffer, "collide: x(%d),y(%d)", collidex, collidey);
     gl_render_text(&renderer,
                    fmt_buffer,
-                   Vec2{200.0f, 200.0f},       // position
+                   Vec2{500.0f, 1000.0f},       // position
                    28.0f,                      // size
                    Vec3{0.0f, 0.0f, 0.0f});    // color
-    sprintf(fmt_buffer, "collide x: %d, y: %d", collidex, collidey);
-    gl_render_text(&renderer,
-                   fmt_buffer,
-                   Vec2{200.0f, 600.0f},       // position
-                   28.0f,                      // size
-                   Vec3{0.0f, 0.0f, 0.0f});    // color
-    if (activate_gravity)
+    if (is_gravity)
     {
       gl_render_text(&renderer,
                      "gravity=1",
