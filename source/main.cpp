@@ -24,7 +24,9 @@
 *     sliding off and other small movement when in free fall
 *   - movement and deceleration when not moving in free fall
 * - Jumping
+* - Fixed framerate to prevent weird quirks with movement
 * TODO:
+* - Refactor state
 * - Some way to make and define levels
 * - Level completion Object
 * - Implement Broad Phase Collision for efficient collision handling 
@@ -112,6 +114,47 @@ struct Rect {
   Vec2 size;
   Vec3 position;
 };
+
+class Timer {
+public:
+  Timer();
+  update();
+  enforceFramerate(u32 framerate);
+public:
+  r64 tDeltaMS;
+  r64 tDelta;
+private:
+  r64 tPrev;
+  r64 tCurr;
+};
+
+Timer::Timer() {
+  this->tCurr = SDL_GetTicks64();
+  this->tPrev = m_tCurr;
+  this->tDeltaMS = this->tCurr - this->tPrev;
+  this->tDelta = this->tDeltaMS / 1000.0f;
+}
+
+Timer::update() {
+  this->tPrev = this->tCurr;
+  this->tCurr = SDL_GetTicks64();
+  this->tDeltaMS = this->tCurr - this->tPrev;
+  this->tDelta = this->tDeltaMS / 1000.0f;
+}
+
+Time::enforceFramerate(u32 target) {
+  this->update();
+  while(this->tDeltaMS < SDL_floor(1000.0f/(r64)target)) {
+    this->tCurr = SDL_GetTicks64();
+    this->tDeltaMS = this->tCurr - this->tPrev;
+    this->tDelta = this->tDeltaMS / 1000.0f;
+
+    // pass time
+    continue;
+  }
+}
+
+
 
 struct GameState {
   // player
@@ -613,16 +656,28 @@ int main(int argc, char* argv[])
 
   b8 cndbrk = 0; // a conditional debug trick in code
   b8 game_running = 1;
-  r32 time_prev = SDL_GetTicks64() / 1000.0f;
-  r32 time_curr = time_prev;
-  r32 time_delta = time_curr - time_prev;
+
+  r64 time_prev = SDL_GetTicks64();
+  r64 time_curr = time_prev;
+  r64 time_delta_ms = time_curr - time_prev;
+  r64 time_delta = time_delta_ms/1000.0f;
+
   while (game_running) 
   {
     time_prev = time_curr;
-    time_curr = SDL_GetTicks64() / 1000.0f;
-    time_delta = time_curr - time_prev;
+    time_curr = SDL_GetTicks64();
+    time_delta_ms = time_curr - time_prev;
+    while(time_delta_ms < SDL_floor(1000.0f/60.0f)) {
+      time_curr = SDL_GetTicks64();
+      time_delta_ms = time_curr - time_prev;
+      time_delta = time_delta_ms / 1000.0f;
+      // going to keep passing time here
+      continue;
+    }
+
     controller.jump = 0;
     controller.toggle_gravity = 0;
+
     SDL_Event ev;
     while(SDL_PollEvent(&ev))
     {
@@ -830,18 +885,6 @@ int main(int argc, char* argv[])
           }
           effective_force = net_force;
       }
-      {
-        // vertical motion when falling
-        r32 dy1 = player_velocity.y;
-        dy1 = dy1 + freefall_accel;
-        if (controller.jump) {
-          dy1 = jump_force;
-        }
-        dy1 = dy1*time_delta;
-        player_velocity.y = dy1;
-        pd_1.y = dy1;
-      }
-
       // @note: define equations of motion for player horizontal movement
       // phase 1: ramp up
       // y = x => v = v0 + at (v0 = 0)
@@ -870,12 +913,24 @@ int main(int argc, char* argv[])
         player_velocity.x = dx1;
         pd_1.x = dx1;
       }
+      {
+        // vertical motion when falling
+        r32 dy1 = player_velocity.y;
+        dy1 = dy1 + freefall_accel*time_delta;
+        if (controller.jump) {
+          dy1 = jump_force;
+        }
+        player_velocity.y = dy1;
+        pd_1.y = dy1;
+      }
     }
     else 
     {
-      pd_1 = mul2vf(p_move_dir_curr, 800.0f*time_delta);
+      if (ABS(p_move_dir_curr.x) > 0.0f || ABS(p_move_dir_curr.y) > 0.0f)
+        pd_1 = mul2vf(p_move_dir_curr, 8.0f);
     }
-    
+
+ 
     // @section: collision
     Vec3 next_player_position;
     next_player_position.x = state.player.position.x + pd_1.x;
@@ -974,11 +1029,6 @@ int main(int argc, char* argv[])
                          Vec3{1.0f, 0.0f, 0.0f});
 
     // render ui text
-    gl_render_text(&renderer,
-                   "hello sailor!",
-                   Vec2{30.0f, 700.0f},       // position
-                   28.0f,                     // size
-                   Vec3{0.0f, 0.0f, 0.0f});   // color
     
     if (is_collide_x || is_collide_y)
     {
@@ -1042,6 +1092,13 @@ int main(int argc, char* argv[])
                    Vec2{900.0f, 40.0f},      // position
                    28.0f,                     // size
                    Vec3{0.0f, 0.0f, 0.0f});   // color
+
+    sprintf(fmt_buffer, "frametime: %f", time_delta_ms);
+    gl_render_text(&renderer,
+                   fmt_buffer,
+                   Vec2{900.0f, 90.0f},      // position
+                   28.0f,                     // size
+                   Vec3{0.0f, 0.0f, 0.0f});   // color
     
     sprintf(fmt_buffer, "%f pixels", pd_1.x);
     gl_render_text(&renderer,
@@ -1058,13 +1115,16 @@ int main(int argc, char* argv[])
                    Vec3{0.0f, 0.0f, 0.0f});    // color
     if (is_gravity)
     {
-      gl_render_text(&renderer,
-                     "gravity=1",
-                     Vec2{650.0f, 700.0f},
-                     18.0f,
-                     Vec3{0.2f, 0.8f, 0.0f});
+      gl_render_text(
+        &renderer,
+        "gravity=1",
+        Vec2{650.0f, 700.0f},
+        18.0f,
+        Vec3{0.2f, 0.8f, 0.0f}
+      );
     }
     SDL_GL_SwapWindow(window);
+
   }
   
   free(renderer.ui_text.transforms);
