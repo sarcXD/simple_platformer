@@ -27,7 +27,6 @@ r32 clampf(r32 x, r32 bottom, r32 top)
 }
 
 // ==== Vector Math ====
-
 union Vec2 {
   struct {
     r32 x;
@@ -68,8 +67,6 @@ union Vec2 {
   }
 };
 
-#define V3TOV2(v) (Vec2{((v).x), ((v).y)})
-
 union Vec3 {
 	struct {
 		r32 x;
@@ -78,6 +75,8 @@ union Vec3 {
 	};
 	r32 data[3];
 };
+
+typedef Vec3 RGB;
 
 union Vec4 {
 	struct {
