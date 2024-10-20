@@ -603,8 +603,6 @@ int main(int argc, char* argv[])
   renderer.cq_sp = quad_sp;
   renderer.cq_vao = quad_vao;
   r32 render_scale = 2.0f;
-  r32 movement_to_render_ratio = 1.5f;
-  
   // ==========
   // setup text
   // 1. setup free type library stuff
@@ -666,12 +664,14 @@ int main(int argc, char* argv[])
   );
 
   // @section: gameplay variables
-  r32 fall_accel = 3.0f*movement_to_render_ratio;
-  r32 fall_smooth_decel = -2.0f*movement_to_render_ratio;
-  r32 move_accel = 6.0f*movement_to_render_ratio;
-  r32 freefall_accel = -11.8f*movement_to_render_ratio;
-  r32 jump_force = 6.5f*movement_to_render_ratio;
+  r32 motion_scale = 1.5f;
+  r32 fall_accelx = 3.0f*motion_scale;
+  r32 move_accelx = 6.0f*motion_scale;
+  r32 freefall_accel = -11.8f*motion_scale;
+  r32 jump_force = 6.5f*motion_scale;
   r32 effective_force = 0.0f;
+  Vec2 player_velocity = Vec2{0.0f, 0.0f};
+  Vec2 p_move_dir = Vec2{0.0f, 0.0f};
 
   GameState state = {0};
   Vec3 player_position = Vec3{0.0f, 70.0f, -1.0f};
@@ -694,21 +694,7 @@ int main(int argc, char* argv[])
   b8 collidex = 0;
   b8 collidey = 0;
   b8 is_gravity = 0;
-  Vec2 player_move_t = Vec2{0.0f, 0.0f};
-  Vec2 player_decel_t = Vec2{0.0f, 0.0f};
   
-  // player force variables
-  r32 gravity = -9.8f;
-  r32 player_mass = 1.0f;
-  Vec2 player_acceleration = Vec2{0.0f, 0.0f};
-  Vec2 player_velocity = Vec2{0.0f, 0.0f};
-  Vec2 position_displacement = Vec2{0.0f, 0.0f};
-
-  PMoveState p_move_state = NO_MOVE;
-  Vec2 p_move_dir = Vec2{0.0f, 0.0f};
-  Vec2 p_force = Vec2{0.0f, 0.0f};
-
-  b8 cndbrk = 0; // a conditional debug trick in code
   b8 game_running = 1;
 
   FrameTimer timer = frametimer();
@@ -795,10 +781,6 @@ int main(int argc, char* argv[])
       p_move_dir.x = 0.0f;
       effective_force = 0.0f;
     }
-    if (controller.jump) {
-      p_force = Vec2{2.0f, 2.0f};
-    }
-    
     if (controller.move_up)
     {
       p_move_dir.y = 1.0f;
@@ -830,68 +812,50 @@ int main(int argc, char* argv[])
       is_key_down_x = true;
     }
 
-    b8 was_moving_on_ground = collidey;
-    if (is_gravity) {
-      if (!collidey) {
-        // fall states
-        if (is_key_down_x) {
-            p_move_state = FALL_MOVE;
-        }       
-      } else {
-        // standard motion states
-        if (is_key_down_x) {
-          p_move_state = MOVE;
-        }      
-      }
-    }
-    
     // @section: gravity
     Vec2 pd_1 = Vec2{0.0f, 0.0f};
     r32 accel_computed = 0.0f;
     if (collidey)
     {
-      player_move_t.y = 0.0f;
       player_velocity.y = 0.0f;
     }
     if (collidex)
     {
-      player_move_t.x = 0.0f;
       player_velocity.x = 0.0f;
     }
     if (is_gravity)
     {
       // calculate force acting on player
-      if (was_moving_on_ground) {
+      if (collidey) {
         // @note: can I reduce the states here like I did in the falling case
         // without separate checks
         if (is_key_down_x) {
           r32 updated_force = (
-            effective_force + p_move_dir.x*move_accel*timer.tDelta
+            effective_force + p_move_dir.x*move_accelx*timer.tDelta
           );
           updated_force = clampf(
-            updated_force, -move_accel, move_accel
+            updated_force, -move_accelx, move_accelx
           );
-          if (controller.jump) {
-          }
           effective_force = updated_force;
         } else {
-          r32 force_reducer = 0.0f;
+          r32 friction = 0.0f;
           if (effective_force > 0.0f) {
-            force_reducer = -move_accel*timer.tDelta;
+            friction = -move_accelx*timer.tDelta;
           } else if (effective_force < 0.0f) {
-            force_reducer = move_accel*timer.tDelta;
+            friction = move_accelx*timer.tDelta;
           }
-          r32 updated_force = effective_force + force_reducer;
+          r32 updated_force = effective_force + friction;
           effective_force = (
             ABS(updated_force) < 0.5f ? 
             0.0f : updated_force
           );
         }
       } else {
-          r32 smoothing_force = effective_force;
-          r32 net_force = effective_force;
-          r32 active_force = 0.0f;
-
+        r32 smoothing_force = effective_force;
+        r32 net_force = 0.0f;
+        r32 active_force = 0.0f;
+        if (!collidex) { 
+          net_force += effective_force;
           {
             // @note: air resistance 
             // (arbitrary force in opposite direction to reduce speed)
@@ -904,51 +868,37 @@ int main(int argc, char* argv[])
             b8 is_force_neg = effective_force < 0.0f;
             r32 friction = 0.0f;
             if (is_force_pos) {
-              friction = -fall_accel*timer.tDelta;
+              friction = -fall_accelx*timer.tDelta;
             } else if (is_force_neg) {
-              friction = fall_accel*timer.tDelta;
+              friction = fall_accelx*timer.tDelta;
             }
             net_force += friction;
           } 
 
-          if (!collidex) {
-            active_force = p_move_dir.x*fall_accel;
+          {
+            // @note: player movement force
+            active_force = p_move_dir.x*fall_accelx;
             r32 interm_total_force = net_force + active_force;
-            if (ABS(interm_total_force) > fall_accel) {
-              r32 deficit = MIN(fall_accel - ABS(net_force), 0.0f);
+            if (ABS(interm_total_force) > fall_accelx) {
+              r32 deficit = MIN(fall_accelx - ABS(net_force), 0.0f);
               active_force = p_move_dir.x*deficit;
             }
             net_force += active_force;
           }
-          effective_force = net_force;
+        }
+        effective_force = net_force;
       }
       
-      if (!collidex) {
-        r32 dx1 = player_velocity.x;
-        switch (p_move_state) {
-          case MOVE:
-          case FALL_MOVE:
-            {
-              dx1 = effective_force;
-            } break;
-          default:
-            {
-            } break;
-        }
-        // checks for motion on ground
+      {
+        // horizontal motion setting
+        r32 dx1 = effective_force;
         if ( dx1 == 0.0f ) {
           p_move_dir.x = 0.0f;
-          p_move_state = NO_MOVE;
         }
 
         accel_computed = (dx1 - player_velocity.x)/timer.tDelta;
         player_velocity.x = dx1;
         pd_1.x = dx1;
-      } else {
-        p_move_dir.x = 0.0f;
-        p_move_state = NO_MOVE;
-        player_velocity.x = 0.0f;
-        pd_1.x = 0.0f;
       }
 
       {
@@ -1092,36 +1042,15 @@ int main(int argc, char* argv[])
                      28.0f,                     // size
                      Vec3{0.0f, 0.0f, 0.0f});   // color
       
-      char accel_output[50];
-      sprintf(accel_output, "%f pps^2", accel_computed);
-      gl_render_text(&renderer,
-                     accel_output,
-                     Vec2{500.0f, 150.0f},       // position
-                     28.0f,                      // size
-                     Vec3{0.0f, 0.0f, 0.0f});    // color
     }
-    char move_state_output[50];
-    switch(p_move_state) {
-      case NO_MOVE:
-        {
-          sprintf(move_state_output, "move_dir = NO_MOVE");
-        } break;
-      case MOVE:
-        {
-          sprintf(move_state_output, "move_dir = MOVE");
-        } break;
-      case FALL_MOVE:
-        {
-          sprintf(move_state_output, "move_dir = FALL_MOVE");
-        } break;
-      default:
-        break;
-    }
+    char accel_output[50];
+    sprintf(accel_output, "effective_force %f", effective_force);
     gl_render_text(&renderer,
-                   move_state_output,
-                   Vec2{900.0f, 60.0f},      // position
-                   28.0f,                     // size
-                   Vec3{0.0f, 0.0f, 0.0f});   // color
+                   accel_output,
+                   Vec2{500.0f, 150.0f},       // position
+                   28.0f,                      // size
+                   Vec3{0.0f, 0.0f, 0.0f});    // color
+    char move_state_output[50];
     
     char fmt_buffer[50];
     sprintf(fmt_buffer, "player moving? %d", is_key_down_x);
@@ -1151,16 +1080,6 @@ int main(int argc, char* argv[])
                    Vec2{500.0f, 1000.0f},       // position
                    28.0f,                      // size
                    Vec3{0.0f, 0.0f, 0.0f});    // color
-    if (is_gravity)
-    {
-      gl_render_text(
-        &renderer,
-        "gravity=1",
-        Vec2{650.0f, 700.0f},
-        18.0f,
-        Vec3{0.2f, 0.8f, 0.0f}
-      );
-    }
     SDL_GL_SwapWindow(window);
 
   }
