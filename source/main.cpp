@@ -115,46 +115,83 @@ struct Rect {
   Vec3 position;
 };
 
-class Timer {
+class FrameTimerV2 {
 public:
-  Timer();
-  update();
-  enforceFramerate(u32 framerate);
+  FrameTimerV2();
+  void update();
+  void enforceFramerate(u32 framerate);
 public:
-  r64 tDeltaMS;
-  r64 tDelta;
-private:
-  r64 tPrev;
-  r64 tCurr;
+  r64 m_tCurr;
+  r64 m_tPrev;
+  r64 m_tDeltaMS;
+  r64 m_tDelta;
 };
 
-Timer::Timer() {
-  this->tCurr = SDL_GetTicks64();
-  this->tPrev = m_tCurr;
-  this->tDeltaMS = this->tCurr - this->tPrev;
-  this->tDelta = this->tDeltaMS / 1000.0f;
+FrameTimerV2::FrameTimerV2() {
+  m_tCurr = SDL_GetTicks64();
+  m_tPrev = m_tCurr;
+  m_tDeltaMS = m_tCurr - m_tPrev;
+  m_tDelta = m_tDeltaMS / 1000.0f;
 }
 
-Timer::update() {
-  this->tPrev = this->tCurr;
-  this->tCurr = SDL_GetTicks64();
-  this->tDeltaMS = this->tCurr - this->tPrev;
-  this->tDelta = this->tDeltaMS / 1000.0f;
+void FrameTimerV2::update() {
+  m_tPrev = m_tCurr;
+  m_tCurr = SDL_GetTicks64();
+  m_tDeltaMS = m_tCurr - m_tPrev;
+  m_tDelta = m_tDeltaMS / 1000.0f;
 }
 
-Time::enforceFramerate(u32 target) {
-  this->update();
-  while(this->tDeltaMS < SDL_floor(1000.0f/(r64)target)) {
-    this->tCurr = SDL_GetTicks64();
-    this->tDeltaMS = this->tCurr - this->tPrev;
-    this->tDelta = this->tDeltaMS / 1000.0f;
+void FrameTimerV2::enforceFramerate(u32 target) {
+  r64 target_frametime = SDL_floor(
+    1000.0f/(r64)target
+  );
+  while(m_tDeltaMS < target_frametime) {
+    m_tCurr = SDL_GetTicks64();
+    m_tDeltaMS = m_tCurr - m_tPrev;
+    m_tDelta = m_tDeltaMS / 1000.0f;
 
     // pass time
     continue;
   }
 }
 
+struct FrameTimer {
+  r64 tCurr;
+  r64 tPrev;
+  r64 tDeltaMS;
+  r64 tDelta;
+};
 
+FrameTimer frametimer() {
+  FrameTimer res = {};
+  res.tCurr = SDL_GetTicks64();
+  res.tPrev = res.tCurr;
+  res.tDeltaMS = res.tCurr - res.tPrev;
+  res.tDelta = res.tDeltaMS / 1000.0f;
+
+  return res;
+}
+
+void update_frame_timer(FrameTimer *ft) {
+  ft->tCurr = SDL_GetTicks64();
+  ft->tPrev = ft->tCurr;
+  ft->tDeltaMS = ft->tCurr - ft->tPrev;
+  ft->tDelta = ft->tDeltaMS / 1000.0f;
+}
+
+void enforce_frame_rate(FrameTimer *ft, u32 target) {
+  r64 target_frametime = SDL_floor(
+    1000.0f/(r64)target
+  );
+  while(ft->tDeltaMS < target_frametime) {
+    ft->tCurr = SDL_GetTicks64();
+    ft->tDeltaMS = ft->tCurr - ft->tPrev;
+    ft->tDelta = ft->tDeltaMS / 1000.0f;
+
+    // pass time
+    continue;
+  }
+}
 
 struct GameState {
   // player
@@ -497,6 +534,24 @@ Rect rect(Vec3 position, Vec2 size) {
   return r;
 }
 
+Vec2 get_move_dir(Controller c) {
+  Vec2 dir = {};
+  if (c.move_up) {
+    dir.y = 1.0f;
+  }
+  if (c.move_down) {
+    dir.y = -1.0f;
+  }
+  if (c.move_left) {
+    dir.x = -1.0f;
+  }
+  if (c.move_right) {
+    dir.x = 1.0f;
+  }
+
+  return dir;
+}
+
 int main(int argc, char* argv[])
 {
   u32 scr_width = 1024;
@@ -633,6 +688,7 @@ int main(int argc, char* argv[])
 
   Controller controller = {0};
   r32 key_down_time[5] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+  b8 is_key_down_x = false;
   
   // gravity calculations
   b8 collidex = 0;
@@ -640,7 +696,6 @@ int main(int argc, char* argv[])
   b8 is_gravity = 0;
   Vec2 player_move_t = Vec2{0.0f, 0.0f};
   Vec2 player_decel_t = Vec2{0.0f, 0.0f};
-  b8 is_player_moving = false;
   
   // player force variables
   r32 gravity = -9.8f;
@@ -648,32 +703,20 @@ int main(int argc, char* argv[])
   Vec2 player_acceleration = Vec2{0.0f, 0.0f};
   Vec2 player_velocity = Vec2{0.0f, 0.0f};
   Vec2 position_displacement = Vec2{0.0f, 0.0f};
+
   PMoveState p_move_state = NO_MOVE;
-  Vec2 p_move_dir_old = Vec2{0.0f, 0.0f};
   Vec2 p_move_dir = Vec2{0.0f, 0.0f};
-  Vec2 p_move_dir_curr = Vec2{0.0f, 0.0f};
   Vec2 p_force = Vec2{0.0f, 0.0f};
 
   b8 cndbrk = 0; // a conditional debug trick in code
   b8 game_running = 1;
 
-  r64 time_prev = SDL_GetTicks64();
-  r64 time_curr = time_prev;
-  r64 time_delta_ms = time_curr - time_prev;
-  r64 time_delta = time_delta_ms/1000.0f;
+  FrameTimer timer = frametimer();
 
   while (game_running) 
   {
-    time_prev = time_curr;
-    time_curr = SDL_GetTicks64();
-    time_delta_ms = time_curr - time_prev;
-    while(time_delta_ms < SDL_floor(1000.0f/60.0f)) {
-      time_curr = SDL_GetTicks64();
-      time_delta_ms = time_curr - time_prev;
-      time_delta = time_delta_ms / 1000.0f;
-      // going to keep passing time here
-      continue;
-    }
+    update_frame_timer(&timer);
+    enforce_frame_rate(&timer, 60);
 
     controller.jump = 0;
     controller.toggle_gravity = 0;
@@ -696,7 +739,7 @@ int main(int argc, char* argv[])
             if (ev.key.keysym.sym == SDLK_a)
             {
               controller.move_left = 1;
-              key_down_time[PK_A] = time_curr;
+              key_down_time[PK_A] = timer.tCurr;
             }
             if (ev.key.keysym.sym == SDLK_s)
             {
@@ -705,7 +748,7 @@ int main(int argc, char* argv[])
             if (ev.key.keysym.sym == SDLK_d)
             {
               controller.move_right = 1;
-              key_down_time[PK_D] = time_curr;
+              key_down_time[PK_D] = timer.tCurr;
             }
             if (ev.key.keysym.sym == SDLK_SPACE)
             {
@@ -756,20 +799,17 @@ int main(int argc, char* argv[])
       p_force = Vec2{2.0f, 2.0f};
     }
     
-    p_move_dir_curr = Vec2{0.0f, 0.0f};
     if (controller.move_up)
     {
       p_move_dir.y = 1.0f;
-      p_move_dir_curr.y = 1.0f;
     }
     if (controller.move_down)
     {
       p_move_dir.y = -1.0f;
-      p_move_dir_curr.y = -1.0f;
     }
 
     PlatformKey horizontal_move = PK_NIL;
-    is_player_moving = false;
+    is_key_down_x = false;
     if (
       key_down_time[PK_A] != 0.0f || 
       key_down_time[PK_D] != 0.0f
@@ -782,34 +822,30 @@ int main(int argc, char* argv[])
     if (horizontal_move == PK_A && controller.move_left) 
     {
       p_move_dir.x = -1.0f;
-      p_move_dir_curr.x = -1.0f;
-      is_player_moving = true;
+      is_key_down_x = true;
     } 
     if (horizontal_move == PK_D && controller.move_right) 
     {
       p_move_dir.x = 1.0f;
-      p_move_dir_curr.x = 1.0f;
-      is_player_moving = true;
+      is_key_down_x = true;
     }
 
     b8 was_moving_on_ground = collidey;
     if (is_gravity) {
-      b8 is_move_dir_changed = p_move_dir.x != p_move_dir_old.x;
       if (!collidey) {
         // fall states
-        if (is_player_moving) {
+        if (is_key_down_x) {
             p_move_state = FALL_MOVE;
         }       
       } else {
         // standard motion states
-        if (is_player_moving) {
+        if (is_key_down_x) {
           p_move_state = MOVE;
         }      
       }
     }
     
     // @section: gravity
-    p_move_dir_old = p_move_dir;
     Vec2 pd_1 = Vec2{0.0f, 0.0f};
     r32 accel_computed = 0.0f;
     if (collidey)
@@ -828,8 +864,10 @@ int main(int argc, char* argv[])
       if (was_moving_on_ground) {
         // @note: can I reduce the states here like I did in the falling case
         // without separate checks
-        if (is_player_moving) {
-          r32 updated_force = effective_force + p_move_dir.x*move_accel*time_delta;
+        if (is_key_down_x) {
+          r32 updated_force = (
+            effective_force + p_move_dir.x*move_accel*timer.tDelta
+          );
           updated_force = clampf(
             updated_force, -move_accel, move_accel
           );
@@ -839,9 +877,9 @@ int main(int argc, char* argv[])
         } else {
           r32 force_reducer = 0.0f;
           if (effective_force > 0.0f) {
-            force_reducer = -move_accel*time_delta;
+            force_reducer = -move_accel*timer.tDelta;
           } else if (effective_force < 0.0f) {
-            force_reducer = move_accel*time_delta;
+            force_reducer = move_accel*timer.tDelta;
           }
           r32 updated_force = effective_force + force_reducer;
           effective_force = (
@@ -851,8 +889,8 @@ int main(int argc, char* argv[])
         }
       } else {
           r32 smoothing_force = effective_force;
+          r32 net_force = effective_force;
           r32 active_force = 0.0f;
-          r32 net_force = 0.0f;
 
           {
             // @note: air resistance 
@@ -864,17 +902,16 @@ int main(int argc, char* argv[])
             // explicit checking
             b8 is_force_pos = effective_force > 0.0f;
             b8 is_force_neg = effective_force < 0.0f;
-            r32 force_reducer = 0.0f;
+            r32 friction = 0.0f;
             if (is_force_pos) {
-              force_reducer = -fall_accel*time_delta;
+              friction = -fall_accel*timer.tDelta;
             } else if (is_force_neg) {
-              force_reducer = fall_accel*time_delta;
+              friction = fall_accel*timer.tDelta;
             }
-            smoothing_force = effective_force + force_reducer;
-            net_force += smoothing_force;
+            net_force += friction;
           } 
 
-          if (is_player_moving) {
+          if (!collidex) {
             active_force = p_move_dir.x*fall_accel;
             r32 interm_total_force = net_force + active_force;
             if (ABS(interm_total_force) > fall_accel) {
@@ -885,11 +922,6 @@ int main(int argc, char* argv[])
           }
           effective_force = net_force;
       }
-      // @note: define equations of motion for player horizontal movement
-      // phase 1: ramp up
-      // y = x => v = v0 + at (v0 = 0)
-      // y = 4 => v = 4 (a = 0, v0 = 4)
-      // 4 = -1.5x + 1.5
       
       if (!collidex) {
         r32 dx1 = player_velocity.x;
@@ -909,14 +941,20 @@ int main(int argc, char* argv[])
           p_move_state = NO_MOVE;
         }
 
-        accel_computed = (dx1 - player_velocity.x)/time_delta;
+        accel_computed = (dx1 - player_velocity.x)/timer.tDelta;
         player_velocity.x = dx1;
         pd_1.x = dx1;
+      } else {
+        p_move_dir.x = 0.0f;
+        p_move_state = NO_MOVE;
+        player_velocity.x = 0.0f;
+        pd_1.x = 0.0f;
       }
+
       {
         // vertical motion when falling
         r32 dy1 = player_velocity.y;
-        dy1 = dy1 + freefall_accel*time_delta;
+        dy1 = dy1 + freefall_accel*timer.tDelta;
         if (controller.jump) {
           dy1 = jump_force;
         }
@@ -926,8 +964,8 @@ int main(int argc, char* argv[])
     }
     else 
     {
-      if (ABS(p_move_dir_curr.x) > 0.0f || ABS(p_move_dir_curr.y) > 0.0f)
-        pd_1 = mul2vf(p_move_dir_curr, 8.0f);
+        Vec2 dir = get_move_dir(controller);
+        pd_1 = mul2vf(dir, 8.0f);
     }
 
  
@@ -1086,14 +1124,14 @@ int main(int argc, char* argv[])
                    Vec3{0.0f, 0.0f, 0.0f});   // color
     
     char fmt_buffer[50];
-    sprintf(fmt_buffer, "player moving? %d", is_player_moving);
+    sprintf(fmt_buffer, "player moving? %d", is_key_down_x);
     gl_render_text(&renderer,
                    fmt_buffer,
                    Vec2{900.0f, 40.0f},      // position
                    28.0f,                     // size
                    Vec3{0.0f, 0.0f, 0.0f});   // color
 
-    sprintf(fmt_buffer, "frametime: %f", time_delta_ms);
+    sprintf(fmt_buffer, "frametime: %f", timer.tDeltaMS);
     gl_render_text(&renderer,
                    fmt_buffer,
                    Vec2{900.0f, 90.0f},      // position
