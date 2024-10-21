@@ -26,7 +26,6 @@
 * - Jumping
 * - Fixed framerate to prevent weird quirks with movement
 * TODO:
-* - Refactor state
 * - Some way to make and define levels
 * - Level completion Object
 * - Implement Broad Phase Collision for efficient collision handling 
@@ -91,6 +90,7 @@ struct GLRenderer {
   u32 cq_vao;
   // camera
   b8   cam_update;
+  Vec3 preset_up_dir;
   Vec3 cam_pos;
   Vec3 cam_look;
   Mat4 cam_view;
@@ -552,6 +552,17 @@ Vec2 get_move_dir(Controller c) {
   return dir;
 }
 
+void update_camera(GLRenderer *renderer) {
+  if (renderer->cam_update == true) {
+    renderer->cam_view = camera_create4m(
+      renderer->cam_pos, 
+      add3v(renderer->cam_pos, renderer->cam_look), 
+      renderer->preset_up_dir
+    );
+    renderer->cam_update = false;
+  }
+}
+
 int main(int argc, char* argv[])
 {
   u32 scr_width = 1024;
@@ -599,9 +610,9 @@ int main(int argc, char* argv[])
   );
   u32 quad_vao = gl_setup_colored_quad(quad_sp);
   
-  GLRenderer renderer;
-  renderer.cq_sp = quad_sp;
-  renderer.cq_vao = quad_vao;
+  GLRenderer *renderer = new GLRenderer();
+  renderer->cq_sp = quad_sp;
+  renderer->cq_vao = quad_vao;
   r32 render_scale = 2.0f;
   // ==========
   // setup text
@@ -632,32 +643,33 @@ int main(int argc, char* argv[])
   }
   // 2. setup gl text
   // @note: we only support 128 characters, which is the basic ascii set
-  renderer.ui_text.chunk_size = 32;
-  renderer.ui_text.pixel_size = 32*render_scale;
-  renderer.ui_text.sp = ui_text_sp;
-  renderer.ui_text.transforms = (Mat4*)malloc(
-    renderer.ui_text.chunk_size*sizeof(Mat4)
+  renderer->ui_text.chunk_size = 32;
+  renderer->ui_text.pixel_size = 32*render_scale;
+  renderer->ui_text.sp = ui_text_sp;
+  renderer->ui_text.transforms = (Mat4*)malloc(
+    renderer->ui_text.chunk_size*sizeof(Mat4)
   );
-  renderer.ui_text.char_indexes = (s32*)malloc(
-    renderer.ui_text.chunk_size*sizeof(s32)
+  renderer->ui_text.char_indexes = (s32*)malloc(
+    renderer->ui_text.chunk_size*sizeof(s32)
   );
-  renderer.ui_text.char_map = (TextChar*)malloc(
+  renderer->ui_text.char_map = (TextChar*)malloc(
     128*sizeof(TextChar)
   );
-  gl_setup_text(&(renderer.ui_text), roboto_font_face);
+  gl_setup_text(&(renderer->ui_text), roboto_font_face);
   
   
   // ============
   // setup camera
   Vec3 preset_up_dir = Vec3{0.0f, 1.0f, 0.0f};
-  renderer.cam_update = 1;
-  renderer.cam_pos = Vec3{0.0f, 0.0f, 1.0f};
-  renderer.cam_look = camera_look_around(TO_RAD(0.0f), -TO_RAD(90.0f));
-  renderer.cam_view = camera_create4m(
-    renderer.cam_pos, 
-    add3v(renderer.cam_pos, renderer.cam_look), preset_up_dir
+  renderer->preset_up_dir = preset_up_dir;
+  renderer->cam_update = false;
+  renderer->cam_pos = Vec3{0.0f, 0.0f, 1.0f};
+  renderer->cam_look = camera_look_around(TO_RAD(0.0f), -TO_RAD(90.0f));
+  renderer->cam_view = camera_create4m(
+    renderer->cam_pos, 
+    add3v(renderer->cam_pos, renderer->cam_look), renderer->preset_up_dir
   );
-  renderer.cam_proj = orthographic_projection4m(
+  renderer->cam_proj = orthographic_projection4m(
     0.0f, (r32)scr_width*render_scale, 
     0.0f, (r32)scr_height*render_scale, 
     0.1f, 10.0f
@@ -986,7 +998,8 @@ int main(int argc, char* argv[])
 
     if (!is_collide_x) {
       state.player.position.x = next_player_position.x;
-
+      renderer->cam_pos.x += pd_1.x;
+      renderer->cam_update = true;
     }
     if (!is_collide_y) {
       state.player.position.y = next_player_position.y;
@@ -995,23 +1008,25 @@ int main(int argc, char* argv[])
     state.player = rect(state.player.position, state.player.size);
     collidex = is_collide_x;
     collidey = is_collide_y;
+
+    update_camera(renderer);
     
     // output
     glClearColor(0.8f, 0.5f, 0.7f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     
     // player
-    gl_draw_colored_quad(&renderer, 
+    gl_draw_colored_quad(renderer, 
                          state.player.position,            // position
                          state.player.size,         // size
                          Vec3{0.45f, 0.8f, 0.2f});
     // floor
-    gl_draw_colored_quad(&renderer,
+    gl_draw_colored_quad(renderer,
                          state.floor.position,
                          state.floor.size,
                          Vec3{1.0f, 1.0f, 1.0f});
     // wall
-    gl_draw_colored_quad(&renderer, 
+    gl_draw_colored_quad(renderer, 
                          state.wall.position,
                          state.wall.size,
                          Vec3{1.0f, 0.0f, 0.0f});
@@ -1020,7 +1035,7 @@ int main(int argc, char* argv[])
     
     if (is_collide_x || is_collide_y)
     {
-      gl_render_text(&renderer,
+      gl_render_text(renderer,
                      "is colliding",
                      Vec2{500.0f, 700.0f},      // position
                      28.0f,                     // size
@@ -1028,7 +1043,7 @@ int main(int argc, char* argv[])
       
       char movedir_output[50];
       sprintf(movedir_output, "move_dir = %f", p_move_dir.x);
-      gl_render_text(&renderer,
+      gl_render_text(renderer,
                      movedir_output,
                      Vec2{500.0f, 60.0f},      // position
                      28.0f,                     // size
@@ -1036,7 +1051,7 @@ int main(int argc, char* argv[])
 
       char speed_output[50];
       sprintf(speed_output, "%f pps", player_velocity.x);
-      gl_render_text(&renderer,
+      gl_render_text(renderer,
                      speed_output,
                      Vec2{500.0f, 100.0f},      // position
                      28.0f,                     // size
@@ -1045,7 +1060,7 @@ int main(int argc, char* argv[])
     }
     char accel_output[50];
     sprintf(accel_output, "effective_force %f", effective_force);
-    gl_render_text(&renderer,
+    gl_render_text(renderer,
                    accel_output,
                    Vec2{500.0f, 150.0f},       // position
                    28.0f,                      // size
@@ -1054,28 +1069,28 @@ int main(int argc, char* argv[])
     
     char fmt_buffer[50];
     sprintf(fmt_buffer, "player moving? %d", is_key_down_x);
-    gl_render_text(&renderer,
+    gl_render_text(renderer,
                    fmt_buffer,
                    Vec2{900.0f, 40.0f},      // position
                    28.0f,                     // size
                    Vec3{0.0f, 0.0f, 0.0f});   // color
 
     sprintf(fmt_buffer, "frametime: %f", timer.tDeltaMS);
-    gl_render_text(&renderer,
+    gl_render_text(renderer,
                    fmt_buffer,
                    Vec2{900.0f, 90.0f},      // position
                    28.0f,                     // size
                    Vec3{0.0f, 0.0f, 0.0f});   // color
     
     sprintf(fmt_buffer, "%f pixels", pd_1.x);
-    gl_render_text(&renderer,
+    gl_render_text(renderer,
                    fmt_buffer,
                    Vec2{500.0f, 200.0f},       // position
                    28.0f,                      // size
                    Vec3{0.0f, 0.0f, 0.0f});    // color
 
     sprintf(fmt_buffer, "collide: x(%d),y(%d)", collidex, collidey);
-    gl_render_text(&renderer,
+    gl_render_text(renderer,
                    fmt_buffer,
                    Vec2{500.0f, 1000.0f},       // position
                    28.0f,                      // size
@@ -1084,9 +1099,9 @@ int main(int argc, char* argv[])
 
   }
   
-  free(renderer.ui_text.transforms);
-  free(renderer.ui_text.char_indexes);
-  free(renderer.ui_text.char_map);
+  free(renderer->ui_text.transforms);
+  free(renderer->ui_text.char_indexes);
+  free(renderer->ui_text.char_map);
   SDL_GL_DeleteContext(context);
   SDL_DestroyWindow(window);
   SDL_Quit();
