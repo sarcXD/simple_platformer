@@ -552,16 +552,16 @@ Vec2 get_move_dir(Controller c) {
   return dir;
 }
 
-void update_camera(GLRenderer *renderer) {
-  if (renderer->cam_update == true) {
-    renderer->cam_view = camera_create4m(
-      renderer->cam_pos, 
-      add3v(renderer->cam_pos, renderer->cam_look), 
-      renderer->preset_up_dir
-    );
-    renderer->cam_update = false;
-  }
-}
+//void update_camera(GLRenderer *renderer) {
+//  if (renderer->cam_update == true) {
+//    renderer->cam_view = camera_create4m(
+//      renderer->cam_pos, 
+//      add3v(renderer->cam_pos, renderer->cam_look), 
+//      renderer->preset_up_dir
+//    );
+//    renderer->cam_update = false;
+//  }
+//}
 
 int main(int argc, char* argv[])
 {
@@ -998,8 +998,8 @@ int main(int argc, char* argv[])
 
     if (!is_collide_x) {
       state.player.position.x = next_player_position.x;
-      renderer->cam_pos.x += pd_1.x;
-      renderer->cam_update = true;
+      //renderer->cam_pos.x += pd_1.x;
+      //renderer->cam_update = true;
     }
     if (!is_collide_y) {
       state.player.position.y = next_player_position.y;
@@ -1009,7 +1009,7 @@ int main(int argc, char* argv[])
     collidex = is_collide_x;
     collidey = is_collide_y;
 
-    update_camera(renderer);
+    //update_camera(renderer);
     
     // output
     glClearColor(0.8f, 0.5f, 0.7f, 1.0f);
