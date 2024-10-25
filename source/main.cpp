@@ -576,6 +576,14 @@ Vec3 get_world_position_from_percent(GameState state, Vec3 v) {
   return world_pos;
 }
 
+Vec2 get_screen_position_from_percent(GameState state, Vec2 v) {
+  Vec2 screen_pos = v;
+  screen_pos.x = state.render_scale.x*state.screen_size.x*v.x/100.0f;
+  screen_pos.y = state.render_scale.y*state.screen_size.y*v.y/100.0f;
+
+  return screen_pos;
+}
+
 Vec3 get_screen_position_from_percent(GameState state, Vec3 v) {
   Vec3 screen_pos = v;
   screen_pos.x = state.render_scale.x*state.screen_size.x*v.x/100.0f;
@@ -704,6 +712,8 @@ int main(int argc, char* argv[])
   r32 effective_force = 0.0f;
   Vec2 player_velocity = Vec2{0.0f, 0.0f};
   Vec2 p_move_dir = Vec2{0.0f, 0.0f};
+  // direction in which player is effectively travelling
+  Vec2 p_motion_dir = Vec2{0.0f, 0.0f};
 
   GameState state = {0};
   state.world_size = v2(scr_width, scr_height);
@@ -731,6 +741,17 @@ int main(int argc, char* argv[])
   );
   Vec2 wall_size = atom_size*Vec2{1.5f, 8.0f};
   state.wall = rect(wall_position, wall_size);
+
+  // gameplay camera movement stuff
+  Vec2 cam_lt_limit = {0};
+  Vec2 cam_rb_limit = {0};
+  cam_lt_limit = get_screen_position_from_percent(
+    state, Vec2{20.0f, 80.0f}
+  );
+  cam_rb_limit = get_screen_position_from_percent(
+    state, Vec2{80.0f, 20.0f}
+  );
+
 
   Controller controller = {0};
   r32 key_down_time[5] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
@@ -826,6 +847,7 @@ int main(int argc, char* argv[])
       player_velocity = Vec2{0.0f, 0.0f};
       p_move_dir.x = 0.0f;
       effective_force = 0.0f;
+      p_motion_dir = {0};
     }
     if (controller.move_up)
     {
@@ -860,6 +882,7 @@ int main(int argc, char* argv[])
 
     // @section: gravity
     Vec2 pd_1 = Vec2{0.0f, 0.0f};
+    p_motion_dir = {0};
     r32 accel_computed = 0.0f;
     if (collidey)
     {
@@ -942,6 +965,11 @@ int main(int argc, char* argv[])
           p_move_dir.x = 0.0f;
         }
 
+        if (dx1 < 0.0f) {
+          p_motion_dir.x = -1.0f;
+        } else if (dx1 > 0.0f) {
+          p_motion_dir.x = 1.0f;
+        }
         accel_computed = (dx1 - player_velocity.x)/timer.tDelta;
         player_velocity.x = dx1;
         pd_1.x = dx1;
@@ -954,6 +982,11 @@ int main(int argc, char* argv[])
         if (controller.jump) {
           dy1 = jump_force;
         }
+        if (dy1 < 0.0f) {
+          p_motion_dir.y = -1.0f;
+        } else if (dy1 > 0.0f) {
+          p_motion_dir.y = 1.0f;
+        }
         player_velocity.y = dy1;
         pd_1.y = dy1;
       }
@@ -962,6 +995,16 @@ int main(int argc, char* argv[])
     {
         Vec2 dir = get_move_dir(controller);
         pd_1 = dir * 8.0f;
+        if (pd_1.x < 0.0f) {
+          p_motion_dir.x = -1.0f;
+        } else if (pd_1.x > 0.0f) {
+          p_motion_dir.x = 1.0f;
+        }
+        if (pd_1.y < 0.0f) {
+          p_motion_dir.y = -1.0f;
+        } else if (pd_1.y > 0.0f) {
+          p_motion_dir.y = 1.0f;
+        }
     }
 
  
@@ -1031,11 +1074,15 @@ int main(int argc, char* argv[])
     }
 
     if (!is_collide_x) {
+      if (p_motion_dir.x != 0.0f) {
+        renderer->cam_update = true;
+      }
       state.player.position.x = next_player_position.x;
-      //renderer->cam_pos.x += pd_1.x;
-      renderer->cam_update = true;
     }
     if (!is_collide_y) {
+      if (p_motion_dir.y != 0.0f) {
+        renderer->cam_update = true;
+      }
       state.player.position.y = next_player_position.y;
     }
 
@@ -1045,28 +1092,33 @@ int main(int argc, char* argv[])
 
     // @func: update_camera
     if (renderer->cam_update == true) {
-      r32 screen_l = state.render_scale.x*state.screen_size.x*20.0f/100.0f;
-      r32 screen_r = state.render_scale.x*state.screen_size.x*80.0f/100.0f;
-
-      r32 player_screenx = state.player.position.x - renderer->cam_pos.x;
-
-      if (player_screenx <= screen_l && p_move_dir.x == -1) {
-        renderer->cam_pos.x += pd_1.x;
-        renderer->cam_view = camera_create4m(
-          renderer->cam_pos, 
-          add3v(renderer->cam_pos, renderer->cam_look), 
-          renderer->preset_up_dir
-        );
-      }
-      if (player_screenx >= screen_r && p_move_dir.x == 1) {
-        renderer->cam_pos.x += pd_1.x;
-        renderer->cam_view = camera_create4m(
-          renderer->cam_pos, 
-          add3v(renderer->cam_pos, renderer->cam_look), 
-          renderer->preset_up_dir
-        );
-      }
       renderer->cam_update = false;
+      Vec2 player_screen = state.player.position.v2() - renderer->cam_pos.v2();
+
+      if (player_screen.x <= cam_lt_limit.x && p_motion_dir.x == -1) {
+        renderer->cam_pos.x += pd_1.x;
+        renderer->cam_update = true;
+      }
+      if (player_screen.y >= cam_lt_limit.y && p_motion_dir.y == 1) {
+        renderer->cam_pos.y += pd_1.y;
+        renderer->cam_update = true;
+      }
+      if (player_screen.x >= cam_rb_limit.x && p_motion_dir.x == 1) {
+        renderer->cam_pos.x += pd_1.x;
+        renderer->cam_update = true;
+      }
+      if (player_screen.y <= cam_rb_limit.y && p_motion_dir.y == -1) {
+        renderer->cam_pos.y += pd_1.y;
+        renderer->cam_update = true;
+      }
+      if (renderer->cam_update == true) {
+        renderer->cam_view = camera_create4m(
+          renderer->cam_pos, 
+          add3v(renderer->cam_pos, renderer->cam_look), 
+          renderer->preset_up_dir
+        );
+        renderer->cam_update = false;
+      }
     }
     
     // output

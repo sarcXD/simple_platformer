@@ -90,6 +90,10 @@ union Vec3 {
 		r32 z;
 	};
 	r32 data[3];
+
+  Vec2 v2() {
+    return Vec2{x, y};
+  }
 };
 
 typedef Vec3 RGB;
