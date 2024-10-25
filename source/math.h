@@ -65,6 +65,22 @@ union Vec2 {
 
     return res;
   }
+
+  Vec2 operator*(r32 scaler) const {
+    Vec2 res;
+    res.x = this->x * scaler;
+    res.y = this->y * scaler;
+
+    return res;
+  }
+
+  Vec2 operator*(const Vec2& v) const {
+    Vec2 res;
+    res.x = this->x * v.x;
+    res.y = this->y * v.y;
+
+    return res;
+  }
 };
 
 union Vec3 {
@@ -95,6 +111,13 @@ union Mat4 {
 };
 
 // ==== Vec2 ====
+Vec2 v2(r32 v) {
+  return Vec2{v, v};
+}
+
+Vec2 v2(r32 x, r32 y) {
+  return Vec2{x, y};
+}
 
 r32 dot2v(Vec2 a, Vec2 b) 
 {

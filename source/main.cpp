@@ -194,6 +194,11 @@ void enforce_frame_rate(FrameTimer *ft, u32 target) {
 }
 
 struct GameState {
+  // the default size the game is designed around
+  Vec2 world_size;
+  Vec2 screen_size;
+  // the scaling factor to increase/decrease size of game assets
+  Vec2 render_scale;
   // player
   Rect player;
   Rect floor;
@@ -552,16 +557,32 @@ Vec2 get_move_dir(Controller c) {
   return dir;
 }
 
-//void update_camera(GLRenderer *renderer) {
-//  if (renderer->cam_update == true) {
-//    renderer->cam_view = camera_create4m(
-//      renderer->cam_pos, 
-//      add3v(renderer->cam_pos, renderer->cam_look), 
-//      renderer->preset_up_dir
-//    );
-//    renderer->cam_update = false;
-//  }
-//}
+void update_camera(GLRenderer *renderer) {
+  if (renderer->cam_update == true) {
+    renderer->cam_view = camera_create4m(
+      renderer->cam_pos, 
+      add3v(renderer->cam_pos, renderer->cam_look), 
+      renderer->preset_up_dir
+    );
+    renderer->cam_update = false;
+  }
+}
+
+Vec3 get_world_position_from_percent(GameState state, Vec3 v) {
+  Vec3 world_pos = v;
+  world_pos.x = state.render_scale.x*state.world_size.x*v.x/100.0f;
+  world_pos.y = state.render_scale.y*state.world_size.y*v.y/100.0f;
+
+  return world_pos;
+}
+
+Vec3 get_screen_position_from_percent(GameState state, Vec3 v) {
+  Vec3 screen_pos = v;
+  screen_pos.x = state.render_scale.x*state.screen_size.x*v.x/100.0f;
+  screen_pos.y = state.render_scale.y*state.screen_size.y*v.y/100.0f;
+
+  return screen_pos;
+}
 
 int main(int argc, char* argv[])
 {
@@ -626,11 +647,10 @@ int main(int argc, char* argv[])
   }
   
   FT_Error error = FT_New_Face(
-															 ft_lib, 
-															 "assets/fonts/Roboto.ttf", 
-															 0, 
-															 &roboto_font_face
-															 );
+    ft_lib, 
+    "assets/fonts/Roboto.ttf", 
+    0, &roboto_font_face
+  );
   if (error == FT_Err_Unknown_File_Format)
   {
     printf("ERROR :: Font Loading Failed. The font format is unsupported\n");
@@ -686,16 +706,30 @@ int main(int argc, char* argv[])
   Vec2 p_move_dir = Vec2{0.0f, 0.0f};
 
   GameState state = {0};
+  state.world_size = v2(scr_width, scr_height);
+  state.screen_size = v2(scr_width, scr_height);
+  state.render_scale = v2(render_scale);
   Vec3 player_position = Vec3{0.0f, 70.0f, -1.0f};
   Vec2 player_size = Vec2{40.0f, 40.0f};
   state.player = rect(player_position, player_size);
 
-  Vec3 floor_position = Vec3{600.0f, 800.0f, -2.0f};
-  Vec2 floor_size = Vec2{400.0f, 20.0f};
+  // @thinking: level object handling
+  // there should be a most smallest supported unit
+  // smallest_size: 16x16
+  // object placement should be in percentages
+  // bottom: y%, left: x%
+  // this will allow it to scale with different resolutions
+  Vec2 atom_size = {16.0f, 16.0f};
+
+  Vec3 test_percent = Vec3{60.0f, 50.0f, -2.0f};
+  Vec3 floor_position = get_world_position_from_percent(state, test_percent);
+  Vec2 floor_size = atom_size*Vec2{40.0f, 1.5f};
   state.floor = rect(floor_position, floor_size);
 
-  Vec3 wall_position = Vec3{170.0f, 100.0f, -2.0f};
-  Vec2 wall_size = Vec2{20.0f, 80.0f};
+  Vec3 wall_position = get_world_position_from_percent(
+    state, Vec3{20.0f, 10.0f, -2.0f}
+  );
+  Vec2 wall_size = atom_size*Vec2{1.5f, 8.0f};
   state.wall = rect(wall_position, wall_size);
 
   Controller controller = {0};
@@ -927,7 +961,7 @@ int main(int argc, char* argv[])
     else 
     {
         Vec2 dir = get_move_dir(controller);
-        pd_1 = mul2vf(dir, 8.0f);
+        pd_1 = dir * 8.0f;
     }
 
  
@@ -999,7 +1033,7 @@ int main(int argc, char* argv[])
     if (!is_collide_x) {
       state.player.position.x = next_player_position.x;
       //renderer->cam_pos.x += pd_1.x;
-      //renderer->cam_update = true;
+      renderer->cam_update = true;
     }
     if (!is_collide_y) {
       state.player.position.y = next_player_position.y;
@@ -1009,7 +1043,31 @@ int main(int argc, char* argv[])
     collidex = is_collide_x;
     collidey = is_collide_y;
 
-    //update_camera(renderer);
+    // @func: update_camera
+    if (renderer->cam_update == true) {
+      r32 screen_l = state.render_scale.x*state.screen_size.x*20.0f/100.0f;
+      r32 screen_r = state.render_scale.x*state.screen_size.x*80.0f/100.0f;
+
+      r32 player_screenx = state.player.position.x - renderer->cam_pos.x;
+
+      if (player_screenx <= screen_l && p_move_dir.x == -1) {
+        renderer->cam_pos.x += pd_1.x;
+        renderer->cam_view = camera_create4m(
+          renderer->cam_pos, 
+          add3v(renderer->cam_pos, renderer->cam_look), 
+          renderer->preset_up_dir
+        );
+      }
+      if (player_screenx >= screen_r && p_move_dir.x == 1) {
+        renderer->cam_pos.x += pd_1.x;
+        renderer->cam_view = camera_create4m(
+          renderer->cam_pos, 
+          add3v(renderer->cam_pos, renderer->cam_look), 
+          renderer->preset_up_dir
+        );
+      }
+      renderer->cam_update = false;
+    }
     
     // output
     glClearColor(0.8f, 0.5f, 0.7f, 1.0f);
