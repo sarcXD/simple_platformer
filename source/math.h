@@ -34,7 +34,7 @@ union Vec2 {
   };
   r32 data[2];
 
-  Vec2 operator+(const r32& scaler) const {
+  Vec2 operator+(r32 scaler) {
     Vec2 res;
     res.x = this->x + scaler;
     res.y = this->y + scaler;
@@ -42,7 +42,7 @@ union Vec2 {
     return res;
   }
 
-  Vec2 operator+(const Vec2& v) const {
+  Vec2 operator+(Vec2 v) {
     Vec2 res;
     res.x = this->x + v.x;
     res.y = this->y + v.y;
@@ -50,7 +50,7 @@ union Vec2 {
     return res;
   }
 
-  Vec2 operator-(const r32& scaler) const {
+  Vec2 operator-(r32 scaler) {
     Vec2 res;
     res.x = this->x - scaler;
     res.y = this->y - scaler;
@@ -58,7 +58,7 @@ union Vec2 {
     return res;
   }
 
-  Vec2 operator-(const Vec2& v) const {
+  Vec2 operator-(Vec2 v) {
     Vec2 res;
     res.x = this->x - v.x;
     res.y = this->y - v.y;
@@ -66,7 +66,7 @@ union Vec2 {
     return res;
   }
 
-  Vec2 operator*(r32 scaler) const {
+  Vec2 operator*(r32 scaler) {
     Vec2 res;
     res.x = this->x * scaler;
     res.y = this->y * scaler;
@@ -74,7 +74,7 @@ union Vec2 {
     return res;
   }
 
-  Vec2 operator*(const Vec2& v) const {
+  Vec2 operator*(Vec2 v) {
     Vec2 res;
     res.x = this->x * v.x;
     res.y = this->y * v.y;
