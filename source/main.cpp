@@ -25,8 +25,11 @@
 *   - movement and deceleration when not moving in free fall
 * - Jumping
 * - Fixed framerate to prevent weird quirks with movement
+* - Basic camera follower
 * TODO:
 * - Some way to make and define levels
+* - Update camera follower for centering player in view (with limits) after
+*   a few seconds (maybe like 2 seconds)
 * - Level completion Object
 * - Implement Broad Phase Collision for efficient collision handling 
 * - Efficient Quad Renderer
@@ -726,13 +729,12 @@ int main(int argc, char* argv[])
   // @thinking: level object handling
   // there should be a most smallest supported unit
   // smallest_size: 16x16
-  // object placement should be in percentages
-  // bottom: y%, left: x%
-  // this will allow it to scale with different resolutions
+  // object placement should be in pixels 
+  // in order to scale to different resolutions it should be multiplied by
+  // scaling factor
   Vec2 atom_size = {16.0f, 16.0f};
 
-  Vec3 test_percent = Vec3{60.0f, 50.0f, -2.0f};
-  Vec3 floor_position = get_world_position_from_percent(state, test_percent);
+  Vec3 floor_position = Vec3{640.0f*render_scale, 400.0f*render_scale, -2.0f};
   Vec2 floor_size = atom_size*Vec2{40.0f, 1.5f};
   state.floor = rect(floor_position, floor_size);
 
