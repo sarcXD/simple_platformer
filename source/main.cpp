@@ -27,12 +27,13 @@
 * - Fixed framerate to prevent weird quirks with movement
 * - Basic camera follower
 * TODO:
+* - move from row-major to column major setup for math library
+* - Efficient Quad Renderer
 * - Some way to make and define levels
 * - Update camera follower for centering player in view (with limits) after
 *   a few seconds (maybe like 2 seconds)
 * - Level completion Object
 * - Implement Broad Phase Collision for efficient collision handling 
-* - Efficient Quad Renderer
 * - Audio
 * - Level Creation
 */
@@ -333,10 +334,10 @@ void gl_draw_colored_quad(
   // setting quad size
   Mat4 model = init_value4m(1.0);
   Mat4 scale = scaling_matrix4m(size.x, size.y, 0.0f);
-  model = multiply4m(scale, model);
+  model = multiply4m_rm(scale, model);
   // setting quad position
   Mat4 translation = translation_matrix4m(position.x, position.y, position.z);
-  model = multiply4m(translation, model);
+  model = multiply4m_rm(translation, model);
   // setting color
   glUniform3fv(glGetUniformLocation(renderer->cq_sp, "Color"), 1, color.data);
   
@@ -491,7 +492,7 @@ void gl_render_text(GLRenderer *renderer, char* text, Vec2 position, r32 size, V
       
       Mat4 sm = scaling_matrix4m(w, h, 0);
       Mat4 tm = translation_matrix4m(xpos, ypos, 0);
-      Mat4 model = multiply4m(tm, sm);
+      Mat4 model = multiply4m_rm(tm, sm);
       renderer->ui_text.transforms[running_index] = model;
       renderer->ui_text.char_indexes[running_index] = int(*char_iter);
       
@@ -597,6 +598,55 @@ Vec3 get_screen_position_from_percent(GameState state, Vec3 v) {
 
 int main(int argc, char* argv[])
 {
+  // @matrix testing
+  Mat4ColumnMajor a = {0};
+  Mat4ColumnMajor b = {0};
+
+  a.data[0][0] = 4;
+  a.data[0][1] = 2;
+  a.data[0][2] = 0;
+  a.data[0][3] = 0;
+
+  a.data[1][0] = 0;
+  a.data[1][1] = 8;
+  a.data[1][2] = 1;
+  a.data[1][3] = 0;
+
+  a.data[2][0] = 0;
+  a.data[2][1] = 1;
+  a.data[2][2] = 0;
+  a.data[2][3] = 0;
+
+  a.data[3][0] = 0;
+  a.data[3][1] = 0;
+  a.data[3][2] = 0;
+  a.data[3][3] = 0;
+
+  b.data[0][0] = 4;
+  b.data[0][1] = 2;
+  b.data[0][2] = 1;
+  b.data[0][3] = 0;
+
+  b.data[1][0] = 2;
+  b.data[1][1] = 0;
+  b.data[1][2] = 4;
+  b.data[1][3] = 0;
+
+  b.data[2][0] = 9;
+  b.data[2][1] = 4;
+  b.data[2][2] = 2;
+  b.data[2][3] = 0;
+
+  b.data[3][0] = 0;
+  b.data[3][1] = 0;
+  b.data[3][2] = 0;
+  b.data[3][3] = 0;
+
+  Mat4 product = multiply4m_cm(a,b);
+
+  int dbg = 1;
+  return 0;
+#if DISABLE_MAIN_GAME
   u32 scr_width = 1024;
   u32 scr_height = 768;
   
@@ -1195,6 +1245,7 @@ int main(int argc, char* argv[])
                    Vec3{0.0f, 0.0f, 0.0f});   // color
     
     sprintf(fmt_buffer, "%f pixels", pd_1.x);
+
     gl_render_text(renderer,
                    fmt_buffer,
                    Vec2{500.0f, 200.0f},       // position
@@ -1218,4 +1269,5 @@ int main(int argc, char* argv[])
   SDL_DestroyWindow(window);
   SDL_Quit();
   return 0;
+#endif
 }

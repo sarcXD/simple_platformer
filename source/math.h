@@ -108,11 +108,18 @@ union Vec4 {
 	r32 data[4];
 };
 
+// @note: matrix and all matrix operations will be done in column major
+// @todo: be able to specify and configure this in the future
+// possibly through separate functions
 union Mat4 {
 	Vec4 xyzw[4];
 	r32 data[4][4];
 	r32 buffer[16];
 };
+
+typedef Mat4 Mat4RowMajor;
+typedef Mat4 Mat4ColumnMajor;
+
 
 // ==== Vec2 ====
 Vec2 v2(r32 v) {
@@ -346,7 +353,7 @@ Mat4 subtract4m(Mat4 a, Mat4 b)
 	return res;
 }
 
-Vec4 multiply4vm(Vec4 vec, Mat4 mat)
+Vec4 multiply4mv_rm(Mat4RowMajor mat, Vec4 vec)
 {
     /*
      * @note: Incase I get confused about this in the future.
@@ -372,23 +379,62 @@ Vec4 multiply4vm(Vec4 vec, Mat4 mat)
 	return res;
 }
 
-Mat4 multiply4m(Mat4 a, Mat4 b)
+Mat4RowMajor multiply4m_rm(Mat4RowMajor a, Mat4RowMajor b) 
 {
-	Mat4 res = { 0 };
-	
-	res.xyzw[0] = multiply4vm(a.xyzw[0], b);
-	res.xyzw[1] = multiply4vm(a.xyzw[1], b);
-	res.xyzw[2] = multiply4vm(a.xyzw[2], b);
-	res.xyzw[3] = multiply4vm(a.xyzw[3], b);
-    
-	return res;
+  Mat4RowMajor res = { 0 };
+
+  res.xyzw[0] = multiply4mv_rm(b, a.xyzw[0]);
+  res.xyzw[1] = multiply4mv_rm(b, a.xyzw[1]);
+  res.xyzw[2] = multiply4mv_rm(b, a.xyzw[2]);
+  res.xyzw[3] = multiply4mv_rm(b, a.xyzw[3]);
+
+  return res;
 }
 
+Vec4 multiply4mv_cm(Mat4ColumnMajor m, Vec4 v)
+{
+  Vec4 res = {0};
+
+  res.x += m.data[0][0]*v.x;
+  res.y += m.data[0][1]*v.x;
+  res.z += m.data[0][2]*v.x;
+  res.w += m.data[0][3]*v.x;
+
+  res.x += m.data[1][0]*v.y;
+  res.y += m.data[1][1]*v.y;
+  res.z += m.data[1][2]*v.y;
+  res.w += m.data[1][3]*v.y;
+
+  res.x += m.data[2][0]*v.z;
+  res.y += m.data[2][1]*v.z;
+  res.z += m.data[2][2]*v.z;
+  res.w += m.data[2][3]*v.z;
+
+  res.x += m.data[3][0]*v.w;
+  res.y += m.data[3][1]*v.w;
+  res.z += m.data[3][2]*v.w;
+  res.w += m.data[3][3]*v.w;
+
+  return res;
+}
+
+Mat4ColumnMajor multiply4m_cm(Mat4ColumnMajor a, Mat4ColumnMajor b) 
+{
+  Mat4ColumnMajor res = { 0 };
+
+  res.xyzw[0] = multiply4mv_cm(b, a.xyzw[0]);
+  res.xyzw[1] = multiply4mv_cm(b, a.xyzw[1]);
+  res.xyzw[2] = multiply4mv_cm(b, a.xyzw[2]);
+  res.xyzw[3] = multiply4mv_cm(b, a.xyzw[3]);
+
+  return res;
+}
 // ==== Matrix Transformation ====
 
-Mat4 scaling_matrix4m(r32 x, r32 y, r32 z)	// generates a 4x4 scaling matrix for scaling each of the x,y,z axis
+Mat4RowMajor scaling_matrix4m(r32 x, r32 y, r32 z)	
 {
-	Mat4 res = init_value4m(1.0f);
+  // generates a 4x4 scaling matrix for scaling each of the x,y,z axis
+	Mat4RowMajor res = init_value4m(1.0f);
 	res.data[0][0] = x;
 	res.data[1][1] = y;
 	res.data[2][2] = z;
@@ -396,9 +442,10 @@ Mat4 scaling_matrix4m(r32 x, r32 y, r32 z)	// generates a 4x4 scaling matrix for
 	return res;
 }
 
-Mat4 translation_matrix4m(r32 x, r32 y, r32 z)	// generates a 4x4 translation matrix for translation along each of the x,y,z axis
+Mat4RowMajor translation_matrix4m(r32 x, r32 y, r32 z)	
 {
-	Mat4 res = init_value4m(1.0f);
+  // generates a 4x4 translation matrix for translation along each of the x,y,z axis
+	Mat4RowMajor res = init_value4m(1.0f);
 	res.data[0][3] = x;
 	res.data[1][3] = y;
 	res.data[2][3] = z;
@@ -406,9 +453,9 @@ Mat4 translation_matrix4m(r32 x, r32 y, r32 z)	// generates a 4x4 translation ma
 	return res;
 }
 
-Mat4 rotation_matrix4m(r32 angle_radians, Vec3 axis)	// generates a 4x4 rotation matrix for rotation along each of the x,y,z axis
+Mat4RowMajor rotation_matrix4m(r32 angle_radians, Vec3 axis)	// generates a 4x4 rotation matrix for rotation along each of the x,y,z axis
 {
-	Mat4 res = init_value4m(1.0f);
+	Mat4RowMajor res = init_value4m(1.0f);
 	axis = normalize3v(axis);
 	
 	r32 cos_theta = cosf(angle_radians);
@@ -430,9 +477,9 @@ Mat4 rotation_matrix4m(r32 angle_radians, Vec3 axis)	// generates a 4x4 rotation
 	return res;
 }
 
-Mat4 perspective_projection4m(r32 left, r32 right, r32 bottom, r32 top, r32 near, r32 far)
+Mat4RowMajor perspective_projection4m(r32 left, r32 right, r32 bottom, r32 top, r32 near, r32 far)
 {
-	Mat4 res = { 0 };
+	Mat4RowMajor res = { 0 };
 	
 	res.data[0][0] = (2.0 * near)/(right - left);
 	res.data[0][2] = (right + left)/(right - left);
@@ -448,11 +495,11 @@ Mat4 perspective_projection4m(r32 left, r32 right, r32 bottom, r32 top, r32 near
 	return res;
 }
 
-Mat4 perspective4m(r32 fov, r32 aspect_ratio, r32 near, r32 far)
+Mat4RowMajor perspective4m(r32 fov, r32 aspect_ratio, r32 near, r32 far)
 {
 	r32 cotangent = 1.0f / tanf(fov / 2.0f);
 	
-	Mat4 res = { 0 };
+	Mat4RowMajor res = { 0 };
     
 	res.data[0][0] = cotangent / aspect_ratio;
 	
@@ -466,10 +513,10 @@ Mat4 perspective4m(r32 fov, r32 aspect_ratio, r32 near, r32 far)
 	return res;
 }
 
-Mat4 orthographic_projection4m(r32 left, r32 right, r32 bottom, r32 top, r32 near, r32 far)
+Mat4RowMajor orthographic_projection4m(r32 left, r32 right, r32 bottom, r32 top, r32 near, r32 far)
 {
   // @todo: understand the derivation once I am done experimenting
-  Mat4 res = { 0 };
+  Mat4RowMajor res = { 0 };
   res.data[0][0] = 2.0f/(right - left);   res.data[0][3] = -(right + left)/(right - left);
   res.data[1][1] = 2.0f/(top - bottom);   res.data[1][3] = -(top + bottom)/(top - bottom);
   res.data[2][2] = -2.0f/(far - near);    res.data[2][3] = -(far + near)/(far - near);
@@ -478,7 +525,7 @@ Mat4 orthographic_projection4m(r32 left, r32 right, r32 bottom, r32 top, r32 nea
   return res;
 }
 
-Mat4 lookat4m(Vec3 up, Vec3 forward, Vec3 right, Vec3 position)
+Mat4RowMajor lookat4m(Vec3 up, Vec3 forward, Vec3 right, Vec3 position)
 {
 	/*
 	* @note: The construction of the lookat matrix is not obvious. For that reason here is the supplemental matrial I have used to understand
@@ -490,7 +537,7 @@ Mat4 lookat4m(Vec3 up, Vec3 forward, Vec3 right, Vec3 position)
   *
   * I am guessing this is not useful for 2D stuff
 	*/
-	Mat4 res = init_value4m(1.0);
+	Mat4RowMajor res = init_value4m(1.0);
 	res.xyzw[0] = Vec4{ right.x,		right.y,	 right.z,		-dot_multiply3v(right, position) };
 	res.xyzw[1] = Vec4{ up.x,				up.y,			 up.z,			-dot_multiply3v(up, position) };
 	res.xyzw[2] = Vec4{ forward.x,  forward.y, forward.z, -dot_multiply3v(forward, position) };
@@ -510,7 +557,7 @@ Vec3 camera_look_around(r32 angle_pitch, r32 angle_yaw)
   return camera_look;
 }
 
-Mat4 camera_create4m(Vec3 camera_pos, Vec3 camera_look, Vec3 camera_up)
+Mat4RowMajor camera_create4m(Vec3 camera_pos, Vec3 camera_look, Vec3 camera_up)
 {
 	// @note: We do this because this allows the camera to have the axis it looks at
 	// inwards be the +z axis.
@@ -520,7 +567,7 @@ Mat4 camera_create4m(Vec3 camera_pos, Vec3 camera_look, Vec3 camera_up)
 	Vec3 camera_right_dir   = normalize3v(cross_multiply3v(camera_up, camera_forward_dir));
 	Vec3 camera_up_dir      = normalize3v(cross_multiply3v(camera_forward_dir, camera_right_dir));
     
-	Mat4 res = lookat4m(camera_up_dir, camera_forward_dir, camera_right_dir, camera_pos);
+	Mat4RowMajor res = lookat4m(camera_up_dir, camera_forward_dir, camera_right_dir, camera_pos);
     
 	return res;
 }
