@@ -112,14 +112,16 @@ union Vec4 {
 // @todo: be able to specify and configure this in the future
 // possibly through separate functions
 union Mat4 {
-	Vec4 xyzw[4];
+	Vec4 row[4];
 	r32 data[4][4];
 	r32 buffer[16];
 };
 
-typedef Mat4 Mat4RowMajor;
-typedef Mat4 Mat4ColumnMajor;
-
+union Mat4RowMajor {
+	Vec4 xyzw[4];
+	r32 data[4][4];
+	r32 buffer[16];
+};
 
 // ==== Vec2 ====
 Vec2 v2(r32 v) {
@@ -353,6 +355,7 @@ Mat4 subtract4m(Mat4 a, Mat4 b)
 	return res;
 }
 
+#if disabled
 Vec4 multiply4mv_rm(Mat4RowMajor mat, Vec4 vec)
 {
     /*
@@ -390,51 +393,52 @@ Mat4RowMajor multiply4m_rm(Mat4RowMajor a, Mat4RowMajor b)
 
   return res;
 }
+#endif
 
-Vec4 multiply4mv_cm(Mat4ColumnMajor m, Vec4 v)
+Vec4 multiply4vm(Vec4 v, Mat4 m)
 {
   Vec4 res = {0};
 
-  res.x += m.data[0][0]*v.x;
-  res.y += m.data[0][1]*v.x;
-  res.z += m.data[0][2]*v.x;
-  res.w += m.data[0][3]*v.x;
+  res.x += v.x*m.data[0][0];
+  res.y += v.x*m.data[0][1];
+  res.z += v.x*m.data[0][2];
+  res.w += v.x*m.data[0][3];
 
-  res.x += m.data[1][0]*v.y;
-  res.y += m.data[1][1]*v.y;
-  res.z += m.data[1][2]*v.y;
-  res.w += m.data[1][3]*v.y;
+  res.x += v.y*m.data[1][0];
+  res.y += v.y*m.data[1][1];
+  res.z += v.y*m.data[1][2];
+  res.w += v.y*m.data[1][3];
 
-  res.x += m.data[2][0]*v.z;
-  res.y += m.data[2][1]*v.z;
-  res.z += m.data[2][2]*v.z;
-  res.w += m.data[2][3]*v.z;
+  res.x += v.z*m.data[2][0];
+  res.y += v.z*m.data[2][1];
+  res.z += v.z*m.data[2][2];
+  res.w += v.z*m.data[2][3];
 
-  res.x += m.data[3][0]*v.w;
-  res.y += m.data[3][1]*v.w;
-  res.z += m.data[3][2]*v.w;
-  res.w += m.data[3][3]*v.w;
+  res.x += v.w*m.data[3][0];
+  res.y += v.w*m.data[3][1];
+  res.z += v.w*m.data[3][2];
+  res.w += v.w*m.data[3][3];
 
   return res;
 }
 
-Mat4ColumnMajor multiply4m_cm(Mat4ColumnMajor a, Mat4ColumnMajor b) 
+Mat4 multiply4m(Mat4 a, Mat4 b) 
 {
-  Mat4ColumnMajor res = { 0 };
+  Mat4 res = { 0 };
 
-  res.xyzw[0] = multiply4mv_cm(b, a.xyzw[0]);
-  res.xyzw[1] = multiply4mv_cm(b, a.xyzw[1]);
-  res.xyzw[2] = multiply4mv_cm(b, a.xyzw[2]);
-  res.xyzw[3] = multiply4mv_cm(b, a.xyzw[3]);
+  res.row[0] = multiply4vm(b.row[0], a);
+  res.row[1] = multiply4vm(b.row[1], a);
+  res.row[2] = multiply4vm(b.row[2], a);
+  res.row[3] = multiply4vm(b.row[3], a);
 
   return res;
 }
 // ==== Matrix Transformation ====
 
-Mat4RowMajor scaling_matrix4m(r32 x, r32 y, r32 z)	
+Mat4 scaling_matrix4m(r32 x, r32 y, r32 z)	
 {
   // generates a 4x4 scaling matrix for scaling each of the x,y,z axis
-	Mat4RowMajor res = init_value4m(1.0f);
+	Mat4 res = init_value4m(1.0f);
 	res.data[0][0] = x;
 	res.data[1][1] = y;
 	res.data[2][2] = z;
@@ -442,7 +446,8 @@ Mat4RowMajor scaling_matrix4m(r32 x, r32 y, r32 z)
 	return res;
 }
 
-Mat4RowMajor translation_matrix4m(r32 x, r32 y, r32 z)	
+#if Disabled
+Mat4RowMajor translation_matrix4m_rm(r32 x, r32 y, r32 z)	
 {
   // generates a 4x4 translation matrix for translation along each of the x,y,z axis
 	Mat4RowMajor res = init_value4m(1.0f);
@@ -452,7 +457,17 @@ Mat4RowMajor translation_matrix4m(r32 x, r32 y, r32 z)
     
 	return res;
 }
+#endif
 
+Mat4 translation_matrix4m_cm(r32 x, r32 y, r32 z)
+{
+  Mat4 res = init_value4m(1.0f);
+  res.row[3] = Vec4{x, y, z, 1.0f};
+
+  return res;
+}
+
+#if Disabled
 Mat4RowMajor rotation_matrix4m(r32 angle_radians, Vec3 axis)	// generates a 4x4 rotation matrix for rotation along each of the x,y,z axis
 {
 	Mat4RowMajor res = init_value4m(1.0f);
@@ -571,4 +586,7 @@ Mat4RowMajor camera_create4m(Vec3 camera_pos, Vec3 camera_look, Vec3 camera_up)
     
 	return res;
 }
+#endif
+
+
 #endif

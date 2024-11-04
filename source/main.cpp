@@ -288,6 +288,7 @@ u32 gl_shader_program_from_path(const char* vspath, const char* fspath)
   return shader_program;
 }
 
+#if DISABLE_MAIN_GAME
 u32 gl_setup_colored_quad(u32 sp)
 {
   // @todo: make this use index buffer maybe?
@@ -336,7 +337,7 @@ void gl_draw_colored_quad(
   Mat4 scale = scaling_matrix4m(size.x, size.y, 0.0f);
   model = multiply4m_rm(scale, model);
   // setting quad position
-  Mat4 translation = translation_matrix4m(position.x, position.y, position.z);
+  Mat4 translation = translation_matrix4m_rm(position.x, position.y, position.z);
   model = multiply4m_rm(translation, model);
   // setting color
   glUniform3fv(glGetUniformLocation(renderer->cq_sp, "Color"), 1, color.data);
@@ -491,7 +492,7 @@ void gl_render_text(GLRenderer *renderer, char* text, Vec2 position, r32 size, V
       r32 h = scale * renderer->ui_text.pixel_size;
       
       Mat4 sm = scaling_matrix4m(w, h, 0);
-      Mat4 tm = translation_matrix4m(xpos, ypos, 0);
+      Mat4 tm = translation_matrix4m_rm(xpos, ypos, 0);
       Mat4 model = multiply4m_rm(tm, sm);
       renderer->ui_text.transforms[running_index] = model;
       renderer->ui_text.char_indexes[running_index] = int(*char_iter);
@@ -595,19 +596,20 @@ Vec3 get_screen_position_from_percent(GameState state, Vec3 v) {
 
   return screen_pos;
 }
+#endif
 
 int main(int argc, char* argv[])
 {
   // @matrix testing
-  Mat4ColumnMajor a = {0};
-  Mat4ColumnMajor b = {0};
+  Mat4 a = {0};
+  Mat4 b = {0};
 
   a.data[0][0] = 4;
-  a.data[0][1] = 2;
+  a.data[0][1] = 0;
   a.data[0][2] = 0;
   a.data[0][3] = 0;
 
-  a.data[1][0] = 0;
+  a.data[1][0] = 2;
   a.data[1][1] = 8;
   a.data[1][2] = 1;
   a.data[1][3] = 0;
@@ -624,7 +626,7 @@ int main(int argc, char* argv[])
 
   b.data[0][0] = 4;
   b.data[0][1] = 2;
-  b.data[0][2] = 1;
+  b.data[0][2] = 9;
   b.data[0][3] = 0;
 
   b.data[1][0] = 2;
@@ -632,7 +634,7 @@ int main(int argc, char* argv[])
   b.data[1][2] = 4;
   b.data[1][3] = 0;
 
-  b.data[2][0] = 9;
+  b.data[2][0] = 1;
   b.data[2][1] = 4;
   b.data[2][2] = 2;
   b.data[2][3] = 0;
@@ -642,7 +644,33 @@ int main(int argc, char* argv[])
   b.data[3][2] = 0;
   b.data[3][3] = 0;
 
-  Mat4 product = multiply4m_cm(a,b);
+  Mat4 product = multiply4m(a,b);
+
+  // translation
+  Mat4 t1 = {0};
+  t1.data[0][0] = 1;
+  t1.data[0][1] = 0;
+  t1.data[0][2] = 0;
+  t1.data[0][3] = 0;
+
+  t1.data[1][0] = 0;
+  t1.data[1][1] = 1;
+  t1.data[1][2] = 0;
+  t1.data[1][3] = 0;
+
+  t1.data[2][0] = 0;
+  t1.data[2][1] = 0;
+  t1.data[2][2] = 1;
+  t1.data[2][3] = 0;
+
+  t1.data[3][0] = 1;
+  t1.data[3][1] = 2;
+  t1.data[3][2] = 3;
+  t1.data[3][3] = 1;
+
+  Vec4 v = Vec4{1,1,1,1};
+
+  Vec4 trans_mat = multiply4vm(v, t1);
 
   int dbg = 1;
   return 0;
