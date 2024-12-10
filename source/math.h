@@ -117,12 +117,6 @@ union Mat4 {
 	r32 buffer[16];
 };
 
-union Mat4RowMajor {
-	Vec4 xyzw[4];
-	r32 data[4][4];
-	r32 buffer[16];
-};
-
 // ==== Vec2 ====
 Vec2 v2(r32 v) {
   return Vec2{v, v};
@@ -355,47 +349,7 @@ Mat4 subtract4m(Mat4 a, Mat4 b)
 	return res;
 }
 
-#if disabled
-Vec4 multiply4mv_rm(Mat4RowMajor mat, Vec4 vec)
-{
-    /*
-     * @note: Incase I get confused about this in the future.
-     *
-     * Everything is row-order, which means that things in memory are laid out row first. So with a sample matrix
-     * we have this order in memory: r1c1 r1c2 r1c3 r1c4 r2c1 ... (r = row, c = column). The same holds true for 
-     * vectors. (maybe move this explanation to the top)
-     *
-     * Now, multiply4vm will multiply a vector with a matrix. Conventionally that does not make any sense as
-     * a vector is usually 4x1 and a matrix ix 4x4.
-     * What this function considers a vector, while it is a vector, it is infact a row from a matrix, which
-     * means that the vector is 1x4 and the matrix is 4x4.
-     * 
-     * The function is meant to supplement the matrix multiplication process to alleviate the multiple lines of code
-     * we have to write when multiplying the row of a left matrix to each column of the right matrix
-     */
-	Vec4 res = { 0 };
-	res.x = (mat.data[0][0] * vec.x) + (mat.data[0][1] * vec.y) + (mat.data[0][2] * vec.z) + (mat.data[0][3] * vec.w);
-	res.y = (mat.data[1][0] * vec.x) + (mat.data[1][1] * vec.y) + (mat.data[1][2] * vec.z) + (mat.data[1][3] * vec.w);
-	res.z = (mat.data[2][0] * vec.x) + (mat.data[2][1] * vec.y) + (mat.data[2][2] * vec.z) + (mat.data[2][3] * vec.w);
-	res.w = (mat.data[3][0] * vec.x) + (mat.data[3][1] * vec.y) + (mat.data[3][2] * vec.z) + (mat.data[3][3] * vec.w);
-	
-	return res;
-}
-
-Mat4RowMajor multiply4m_rm(Mat4RowMajor a, Mat4RowMajor b) 
-{
-  Mat4RowMajor res = { 0 };
-
-  res.xyzw[0] = multiply4mv_rm(b, a.xyzw[0]);
-  res.xyzw[1] = multiply4mv_rm(b, a.xyzw[1]);
-  res.xyzw[2] = multiply4mv_rm(b, a.xyzw[2]);
-  res.xyzw[3] = multiply4mv_rm(b, a.xyzw[3]);
-
-  return res;
-}
-#endif
-
-Vec4 multiply4vm(Vec4 v, Mat4 m)
+Vec4 multiply4mv(Mat4 m, Vec4 v)
 {
   Vec4 res = {0};
 
@@ -426,10 +380,10 @@ Mat4 multiply4m(Mat4 a, Mat4 b)
 {
   Mat4 res = { 0 };
 
-  res.row[0] = multiply4vm(b.row[0], a);
-  res.row[1] = multiply4vm(b.row[1], a);
-  res.row[2] = multiply4vm(b.row[2], a);
-  res.row[3] = multiply4vm(b.row[3], a);
+  res.row[0] = multiply4mv(a, b.row[0]);
+  res.row[1] = multiply4mv(a, b.row[1]);
+  res.row[2] = multiply4mv(a, b.row[2]);
+  res.row[3] = multiply4mv(a, b.row[3]);
 
   return res;
 }
@@ -446,20 +400,7 @@ Mat4 scaling_matrix4m(r32 x, r32 y, r32 z)
 	return res;
 }
 
-#if Disabled
-Mat4RowMajor translation_matrix4m_rm(r32 x, r32 y, r32 z)	
-{
-  // generates a 4x4 translation matrix for translation along each of the x,y,z axis
-	Mat4RowMajor res = init_value4m(1.0f);
-	res.data[0][3] = x;
-	res.data[1][3] = y;
-	res.data[2][3] = z;
-    
-	return res;
-}
-#endif
-
-Mat4 translation_matrix4m_cm(r32 x, r32 y, r32 z)
+Mat4 translation_matrix4m(r32 x, r32 y, r32 z)
 {
   Mat4 res = init_value4m(1.0f);
   res.row[3] = Vec4{x, y, z, 1.0f};
@@ -467,31 +408,103 @@ Mat4 translation_matrix4m_cm(r32 x, r32 y, r32 z)
   return res;
 }
 
-#if Disabled
-Mat4RowMajor rotation_matrix4m(r32 angle_radians, Vec3 axis)	// generates a 4x4 rotation matrix for rotation along each of the x,y,z axis
+Mat4 rotation_matrix4m(r32 angle_radians, Vec3 axis)
 {
-	Mat4RowMajor res = init_value4m(1.0f);
-	axis = normalize3v(axis);
-	
-	r32 cos_theta = cosf(angle_radians);
-	r32 sin_theta = sinf(angle_radians);
-	r32 cos_value = 1.0f - cos_theta;
-    
-	res.data[0][0] = (axis.x * axis.x * cos_value) + cos_theta;
-	res.data[0][1] = (axis.x * axis.y * cos_value) + (axis.z * sin_theta);
-	res.data[0][2] = (axis.x * axis.z * cos_value) - (axis.y * sin_theta);
-	
-	res.data[1][0] = (axis.x * axis.y * cos_value) - (axis.z * sin_theta);
-	res.data[1][1] = (axis.y * axis.y * cos_value) + cos_theta;
-	res.data[1][2] = (axis.y * axis.z * cos_value) + (axis.x * sin_theta);
-    
-	res.data[2][0] = (axis.x * axis.z * cos_value) + (axis.y * sin_theta);
-	res.data[2][1] = (axis.z * axis.y * cos_value) - (axis.x * sin_theta);
-	res.data[2][2] = (axis.z * axis.z * cos_value) + cos_theta;
+  Mat4 res = init_value4m(1.0f);
+  axis = normalize3v(axis);
+
+  r32 cos_theta = cosf(angle_radians);
+  r32 sin_theta = sinf(angle_radians);
+  r32 cos_value = 1.0f - cos_theta;
+
+  res.data[0][0] = (axis.x * axis.x * cos_value) + cos_theta;
+  res.data[0][1] = (axis.x * axis.y * cos_value) + (axis.z * sin_theta);
+  res.data[0][2] = (axis.x * axis.z * cos_value) - (axis.y * sin_theta);
+
+  res.data[1][0] = (axis.x * axis.y * cos_value) - (axis.z * sin_theta);
+  res.data[1][1] = (axis.y * axis.y * cos_value) + cos_theta;
+  res.data[1][2] = (axis.y * axis.z * cos_value) + (axis.x * sin_theta);
+
+  res.data[2][0] = (axis.x * axis.z * cos_value) + (axis.y * sin_theta);
+  res.data[2][1] = (axis.y * axis.z * cos_value) - (axis.x * sin_theta);
+  res.data[2][2] = (axis.z * axis.z * cos_value) + cos_value;
+
+  return res;
+}
+
+Mat4 orthographic4m(r32 left, r32 right, r32 bottom, r32 top, r32 near, r32 far)
+{
+  Mat4 res = init_value4m(0);
+
+  res.data[0][0] = 2.0f/(right - left);
+  res.data[1][1] = 2.0f/(top - bottom);
+  res.data[2][2] = 2.0f/(near - far);
+  res.data[3][0] = (right + left)/(left - right);
+  res.data[3][1] = (top + bottom)/(bottom - top);
+  res.data[3][2] = (far + near)/(near - far);
+  res.data[3][3] = 1.0f;
+
+  return res;
+}
+
+Mat4 lookat4m(Vec3 up, Vec3 forward, Vec3 right, Vec3 position)
+{
+	/*
+	* @note: The construction of the lookat matrix is not obvious. For that reason here is the supplemental matrial I have used to understand
+	* things while I maintain my elementary understanding of linear algebra.
+	* 1. This youtube video (https://www.youtube.com/watch?v=3ZmqJb7J5wE) helped me understand why we invert matrices. 
+	*		 It is because, we are moving from the position matrix which is a global to the view matrix which
+	*		 is a local. It won't be very clear from this illustration alone, so you would be best served watching the video and recollecting and understanding from there.
+	* 2. This article (https://twodee.org/blog/17560) derives (or rather shows), in a very shallow way how we get to the look at matrix.
+	*/
+	Mat4 res = init_value4m(1.0f);
+	res.row[0] = Vec4{ right.x,   up.x,   forward.x,		0.0f };
+	res.row[1] = Vec4{ right.y,   up.y,   forward.y,	  0.0f };
+	res.row[2] = Vec4{ right.z,   up.z,   forward.z,    0.0f };
+
+	res.data[3][0] = -dot_multiply3v(right, position);
+	res.data[3][1] = -dot_multiply3v(up, position);
+	res.data[3][2] = -dot_multiply3v(forward, position);
+  res.data[3][3] = 1.0f;
     
 	return res;
 }
 
+Vec3 camera_look_around(r32 angle_pitch, r32 angle_yaw)
+{
+  Vec3 camera_look = {0.0};
+  camera_look.x = cosf(angle_yaw) * cosf(angle_pitch);
+  camera_look.y = sinf(angle_pitch);
+  camera_look.z = sinf(angle_yaw) * cosf(angle_pitch);
+  camera_look = normalize3v(camera_look);
+  
+  return camera_look;
+}
+
+Mat4 camera_create4m(Vec3 camera_pos, Vec3 camera_look, Vec3 camera_up)
+{
+	// @note: We do this because this allows the camera to have the axis it looks at
+	// inwards be the +z axis.
+	// If we did not do this, then the inward axis the camera looks at would be negative. 
+	// I am still learning from learnopengl.com but I imagine that this was done for conveniences' sake.
+	Vec3 camera_forward_dir = normalize3v(subtract3v(camera_pos, camera_look));
+	Vec3 camera_right_dir   = normalize3v(cross_multiply3v(camera_up, camera_forward_dir));
+	Vec3 camera_up_dir      = normalize3v(cross_multiply3v(camera_forward_dir, camera_right_dir));
+    
+	Mat4 res = lookat4m(camera_up_dir, camera_forward_dir, camera_right_dir, camera_pos);
+    
+	return res;
+}
+
+Mat4 calculate_mvp4m(Mat4 Model, Mat4 View, Mat4 Projection)
+{
+  Mat4 mv = multiply4m(View, Model);
+  Mat4 mvp = multiply4m(Projection, mv);
+
+  return mvp;
+}
+
+#if Disabled
 Mat4RowMajor perspective_projection4m(r32 left, r32 right, r32 bottom, r32 top, r32 near, r32 far)
 {
 	Mat4RowMajor res = { 0 };
@@ -524,65 +537,6 @@ Mat4RowMajor perspective4m(r32 fov, r32 aspect_ratio, r32 near, r32 far)
 	res.data[2][3] = -2.0f * far * near / (far - near);
     
 	res.data[3][2] = -1.0f;
-    
-	return res;
-}
-
-Mat4RowMajor orthographic_projection4m(r32 left, r32 right, r32 bottom, r32 top, r32 near, r32 far)
-{
-  // @todo: understand the derivation once I am done experimenting
-  Mat4RowMajor res = { 0 };
-  res.data[0][0] = 2.0f/(right - left);   res.data[0][3] = -(right + left)/(right - left);
-  res.data[1][1] = 2.0f/(top - bottom);   res.data[1][3] = -(top + bottom)/(top - bottom);
-  res.data[2][2] = -2.0f/(far - near);    res.data[2][3] = -(far + near)/(far - near);
-  res.data[3][3] = 1.0f;
-
-  return res;
-}
-
-Mat4RowMajor lookat4m(Vec3 up, Vec3 forward, Vec3 right, Vec3 position)
-{
-	/*
-	* @note: The construction of the lookat matrix is not obvious. For that reason here is the supplemental matrial I have used to understand
-	* things while I maintain my elementary understanding of linear algebra.
-	* 1. This youtube video (https://www.youtube.com/watch?v=3ZmqJb7J5wE) helped me understand why we invert matrices. 
-	*		 It is because, we are moving from the position matrix which is a global to the view matrix which
-	*		 is a local. It won't be very clear from this illustration alone, so you would be best served watching the video and recollecting and understanding from there.
-	* 2. This article (https://twodee.org/blog/17560) derives (or rather shows), in a very shallow way how we get to the look at matrix.
-  *
-  * I am guessing this is not useful for 2D stuff
-	*/
-	Mat4RowMajor res = init_value4m(1.0);
-	res.xyzw[0] = Vec4{ right.x,		right.y,	 right.z,		-dot_multiply3v(right, position) };
-	res.xyzw[1] = Vec4{ up.x,				up.y,			 up.z,			-dot_multiply3v(up, position) };
-	res.xyzw[2] = Vec4{ forward.x,  forward.y, forward.z, -dot_multiply3v(forward, position) };
-	res.xyzw[3] = Vec4{ 0.0f,				0.0f,			 0.0f,			 1.0f };
-    
-	return res;
-}
-
-Vec3 camera_look_around(r32 angle_pitch, r32 angle_yaw)
-{
-  Vec3 camera_look = {0.0};
-  camera_look.x = cosf(angle_yaw) * cosf(angle_pitch);
-  camera_look.y = sinf(angle_pitch);
-  camera_look.z = sinf(angle_yaw) * cosf(angle_pitch);
-  camera_look = normalize3v(camera_look);
-  
-  return camera_look;
-}
-
-Mat4RowMajor camera_create4m(Vec3 camera_pos, Vec3 camera_look, Vec3 camera_up)
-{
-	// @note: We do this because this allows the camera to have the axis it looks at
-	// inwards be the +z axis.
-	// If we did not do this, then the inward axis the camera looks at would be negative. 
-	// I am still learning from learnopengl.com but I imagine that this was done for conveniences' sake.
-	Vec3 camera_forward_dir = normalize3v(subtract3v(camera_pos, camera_look));
-	Vec3 camera_right_dir   = normalize3v(cross_multiply3v(camera_up, camera_forward_dir));
-	Vec3 camera_up_dir      = normalize3v(cross_multiply3v(camera_forward_dir, camera_right_dir));
-    
-	Mat4RowMajor res = lookat4m(camera_up_dir, camera_forward_dir, camera_right_dir, camera_pos);
     
 	return res;
 }
