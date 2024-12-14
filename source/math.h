@@ -9,8 +9,13 @@
 #define MIN(x,y) ((x) < (y) ? (y) : (x))
 
 // @todo: 
-// - convert these to column major calculations for the opengl path
 // - make everything simd
+
+// @note: Regarding functions written for completeness sake
+// These operations are just defined and not expressed. 
+// They are kept here for completeness sake BUT
+// since I have not had to do anything related to these, I have not created them.
+
 
 r32 clampf(r32 x, r32 bottom, r32 top)
 {
@@ -25,6 +30,7 @@ r32 clampf(r32 x, r32 bottom, r32 top)
     
     return x;
 }
+
 
 // ==== Vector Math ====
 union Vec2 {
@@ -81,6 +87,15 @@ union Vec2 {
 
     return res;
   }
+
+  Vec2 operator/(r32 scaler) {
+    SDL_assert(scaler != 0);
+    Vec2 res;
+    res.x = this->x / scaler;
+    res.y = this->y / scaler;
+
+    return res;
+  }
 };
 
 union Vec3 {
@@ -118,22 +133,23 @@ union Mat4 {
 };
 
 // ==== Vec2 ====
-Vec2 v2(r32 v) {
-  return Vec2{v, v};
+Vec2 vec2(r32 s) {
+  return Vec2{s, s};
 }
 
-Vec2 v2(r32 x, r32 y) {
-  return Vec2{x, y};
-}
+// @note: written for completeness sake
+Vec2 add2vf(Vec2 v, r32 s);
+Vec2 add2v(Vec2 a, Vec2 b);
+Vec2 subtract2vf(Vec2 v, r32 s);
+Vec2 subtract2v(Vec2 a, Vec2 b);
+Vec2 multiply2v(Vec2 a, Vec2 b);
 
-r32 dot2v(Vec2 a, Vec2 b) 
-{
+r32 dot2v(Vec2 a, Vec2 b) {
   r32 res = (a.x*b.x)+(a.y*b.y);
   return res;
 }
 
-Vec2 mul2vf(Vec2 vec, r32 scaler)
-{
+Vec2 multiply2vf(Vec2 vec, r32 scaler) {
   Vec2 res;
   res.x = vec.x * scaler;
   res.y = vec.y * scaler;
@@ -141,8 +157,7 @@ Vec2 mul2vf(Vec2 vec, r32 scaler)
   return res;
 }
 
-Vec2 div2vf(Vec2 vec, r32 scaler)
-{
+Vec2 divide2vf(Vec2 vec, r32 scaler) {
   SDL_assert(scaler != 0);
   Vec2 res;
   res.x = vec.x / scaler;
@@ -151,32 +166,35 @@ Vec2 div2vf(Vec2 vec, r32 scaler)
   return res;
 }
 
-r32 magnitude2v(Vec2 v)
-{
+Vec2 divide2v(Vec2 a, Vec2 b) {
+  SDL_assert(b.x != 0 && b.y != 0);
+  Vec2 res;
+  res.x = a.x / b.x;
+  res.y = a.y / b.y;
+
+  return res;
+}
+
+r32 magnitude2v(Vec2 v) {
 	r32 res = sqrtf(SQUARE(v.x) + SQUARE(v.y));
 	return res;
 }
 
-Vec2 normalize2v(Vec2 v)
-{
+Vec2 normalize2v(Vec2 v) {
 	r32 magnitude = magnitude2v(v);
-	Vec2 res = div2vf(v, magnitude);
+	Vec2 res = divide2vf(v, magnitude);
 	return res;
 }
 
 // ========================================================== Vec3 ==========================================================
 
-Vec3 init3v(r32 x, r32 y, r32 z)
-{
-	Vec3 res;
-	res.x = x;
-	res.y = y;
-	res.z = z;
-    
-	return res;
-}
+// @note: Written for completeness sake
+Vec3 vec3(r32 s);
+Vec3 subtract3vf(Vec3 v, r32 scaler);
+Vec3 multiply3v(Vec3 a, Vec3 b);
+Vec3 divide3v(Vec3 a, Vec3 b); 
 
-Vec3 scaler_add3v(Vec3 vec, r32 scaler)
+Vec3 add3vf(Vec3 vec, r32 scaler)
 {
 	Vec3 res;
 	res.x = vec.x + scaler;
@@ -186,35 +204,14 @@ Vec3 scaler_add3v(Vec3 vec, r32 scaler)
 	return res;
 }
 
-Vec3 scaler_multiply3v(Vec3 vec, r32 scaler)
-{
-	Vec3 res;
-	res.x = vec.x * scaler;
-	res.y = vec.y * scaler;
-	res.z = vec.z * scaler;
-    
-	return res;
-}
-
-Vec3 scaler_divide3v(Vec3 vec, r32 scaler)
-{
-	Vec3 res;
-	res.x = vec.x / scaler;
-	res.y = vec.y / scaler;
-	res.z = vec.z / scaler;
-    
-	return res;
-}
-
-
 Vec3 add3v(Vec3 a, Vec3 b)
 {
-	Vec3 res;
-	res.x = a.x + b.x;
-	res.y = a.y + b.y;
-	res.z = a.z + b.z;
-    
-	return res;
+  Vec3 res;
+  res.x = a.x + b.x;
+  res.y = a.y + b.y;
+  res.z = a.z + b.z;
+
+  return res;
 }
 
 Vec3 subtract3v(Vec3 a, Vec3 b)
@@ -227,7 +224,28 @@ Vec3 subtract3v(Vec3 a, Vec3 b)
 	return res;
 }
 
-r32 dot_multiply3v(Vec3 a, Vec3 b)
+Vec3 multiply3vf(Vec3 vec, r32 scaler)
+{
+	Vec3 res;
+	res.x = vec.x * scaler;
+	res.y = vec.y * scaler;
+	res.z = vec.z * scaler;
+    
+	return res;
+}
+
+
+Vec3 divide3vf(Vec3 vec, r32 scaler)
+{
+	Vec3 res;
+	res.x = vec.x / scaler;
+	res.y = vec.y / scaler;
+	res.z = vec.z / scaler;
+    
+	return res;
+}
+
+r32 dot3v(Vec3 a, Vec3 b)
 {
 	r32 x = a.x * b.x;
 	r32 y = a.y * b.y;
@@ -247,11 +265,11 @@ r32 magnitude3v(Vec3 vec)
 Vec3 normalize3v(Vec3 vec)
 {
 	r32 magnitude = magnitude3v(vec);
-	Vec3 res = scaler_divide3v(vec, magnitude);
+	Vec3 res = divide3vf(vec, magnitude);
 	return res;
 }
 
-Vec3 cross_multiply3v(Vec3 a, Vec3 b)
+Vec3 cross3v(Vec3 a, Vec3 b)
 {
 	Vec3 res;
 	res.x = (a.y * b.z) - (a.z * b.y);
@@ -263,20 +281,39 @@ Vec3 cross_multiply3v(Vec3 a, Vec3 b)
 
 // ============================================== Vec4, Mat4 ==============================================
 
-Vec4 init4v(r32 x, r32 y, r32 z, r32 w)
+// ==================== Vec4 ====================
+Vec4 vec4(r32 s)
 {
 	Vec4 res;
-	res.x = x;
-	res.y = y;
-	res.z = z;
-	res.w = w;
+	res.x = s;
+	res.y = s;
+	res.z = s;
+	res.w = s;
     
 	return res;
 }
 
-Mat4 init_value4m(r32 value)
-{
-	Mat4 res = {0};
+// @note: Written for completeness sake. 
+Vec4 add4vf(Vec4 vec, r32 scaler);
+Vec4 add4v(Vec4 a, Vec4 b);
+Vec4 subtract4vf(Vec4 vec, r32 scaler);
+Vec4 subtract4v(Vec4 a, Vec4 b);
+Vec4 multiply4vf(Vec4 vec, r32 scaler);
+Vec4 multiply4v(Vec4 a, Vec4 b);
+Vec4 divide4vf(Vec4 vec, r32 scaler);
+Vec4 divide4v(Vec4 a, Vec4 b);
+Vec4 dot4v(Vec4 a, Vec4 b);
+
+// =================== MAT4 ===================
+Mat4 mat4(r32 s) {
+  Mat4 res;
+  memset(&res, s, sizeof(res));
+
+  return res;
+}
+
+Mat4 diag4m(r32 value) {
+	Mat4 res = mat4(0.0f);
 	res.data[0][0] = value;
 	res.data[1][1] = value;
 	res.data[2][2] = value;
@@ -284,16 +321,6 @@ Mat4 init_value4m(r32 value)
     
 	return res;
 }
-
-// @note: These operations are just defined and not expressed. They are kept here for completeness sake BUT
-// since I have not had to do anything related to these, I have not created them.
-Vec4 scaler_add4v(Vec4 vec, r32 scaler);
-Vec4 scaler_subtract4v(Vec4 vec, r32 scaler);
-Vec4 scaler_multiply4v(Vec4 vec, r32 scaler);
-Vec4 scaler_divide4v(Vec4 vec, r32 scaler);
-Vec4 add4v(Vec4 a, Vec4 b);
-Vec4 subtract4v(Vec4 a, Vec4 b);
-Vec4 dot_multiply4v(Vec4 a, Vec4 b);
 
 Mat4 add4m(Mat4 a, Mat4 b)
 {
@@ -351,7 +378,7 @@ Mat4 subtract4m(Mat4 a, Mat4 b)
 
 Vec4 multiply4mv(Mat4 m, Vec4 v)
 {
-  Vec4 res = {0};
+  Vec4 res = vec4(0);
 
   res.x += v.x*m.data[0][0];
   res.y += v.x*m.data[0][1];
@@ -392,7 +419,7 @@ Mat4 multiply4m(Mat4 a, Mat4 b)
 Mat4 scaling_matrix4m(r32 x, r32 y, r32 z)	
 {
   // generates a 4x4 scaling matrix for scaling each of the x,y,z axis
-	Mat4 res = init_value4m(1.0f);
+	Mat4 res = diag4m(1.0f);
 	res.data[0][0] = x;
 	res.data[1][1] = y;
 	res.data[2][2] = z;
@@ -402,7 +429,7 @@ Mat4 scaling_matrix4m(r32 x, r32 y, r32 z)
 
 Mat4 translation_matrix4m(r32 x, r32 y, r32 z)
 {
-  Mat4 res = init_value4m(1.0f);
+  Mat4 res = diag4m(1.0f);
   res.row[3] = Vec4{x, y, z, 1.0f};
 
   return res;
@@ -410,7 +437,7 @@ Mat4 translation_matrix4m(r32 x, r32 y, r32 z)
 
 Mat4 rotation_matrix4m(r32 angle_radians, Vec3 axis)
 {
-  Mat4 res = init_value4m(1.0f);
+  Mat4 res = diag4m(1.0f);
   axis = normalize3v(axis);
 
   r32 cos_theta = cosf(angle_radians);
@@ -434,7 +461,7 @@ Mat4 rotation_matrix4m(r32 angle_radians, Vec3 axis)
 
 Mat4 orthographic4m(r32 left, r32 right, r32 bottom, r32 top, r32 near, r32 far)
 {
-  Mat4 res = init_value4m(0);
+  Mat4 res = diag4m(0);
 
   res.data[0][0] = 2.0f/(right - left);
   res.data[1][1] = 2.0f/(top - bottom);
@@ -457,14 +484,14 @@ Mat4 lookat4m(Vec3 up, Vec3 forward, Vec3 right, Vec3 position)
 	*		 is a local. It won't be very clear from this illustration alone, so you would be best served watching the video and recollecting and understanding from there.
 	* 2. This article (https://twodee.org/blog/17560) derives (or rather shows), in a very shallow way how we get to the look at matrix.
 	*/
-	Mat4 res = init_value4m(1.0f);
+	Mat4 res = diag4m(1.0f);
 	res.row[0] = Vec4{ right.x,   up.x,   forward.x,		0.0f };
 	res.row[1] = Vec4{ right.y,   up.y,   forward.y,	  0.0f };
 	res.row[2] = Vec4{ right.z,   up.z,   forward.z,    0.0f };
 
-	res.data[3][0] = -dot_multiply3v(right, position);
-	res.data[3][1] = -dot_multiply3v(up, position);
-	res.data[3][2] = -dot_multiply3v(forward, position);
+	res.data[3][0] = -dot3v(right, position);
+	res.data[3][1] = -dot3v(up, position);
+	res.data[3][2] = -dot3v(forward, position);
   res.data[3][3] = 1.0f;
     
 	return res;
@@ -488,59 +515,12 @@ Mat4 camera_create4m(Vec3 camera_pos, Vec3 camera_look, Vec3 camera_up)
 	// If we did not do this, then the inward axis the camera looks at would be negative. 
 	// I am still learning from learnopengl.com but I imagine that this was done for conveniences' sake.
 	Vec3 camera_forward_dir = normalize3v(subtract3v(camera_pos, camera_look));
-	Vec3 camera_right_dir   = normalize3v(cross_multiply3v(camera_up, camera_forward_dir));
-	Vec3 camera_up_dir      = normalize3v(cross_multiply3v(camera_forward_dir, camera_right_dir));
+	Vec3 camera_right_dir   = normalize3v(cross3v(camera_up, camera_forward_dir));
+	Vec3 camera_up_dir      = normalize3v(cross3v(camera_forward_dir, camera_right_dir));
     
 	Mat4 res = lookat4m(camera_up_dir, camera_forward_dir, camera_right_dir, camera_pos);
     
 	return res;
 }
-
-Mat4 calculate_mvp4m(Mat4 Model, Mat4 View, Mat4 Projection)
-{
-  Mat4 mv = multiply4m(View, Model);
-  Mat4 mvp = multiply4m(Projection, mv);
-
-  return mvp;
-}
-
-#if Disabled
-Mat4RowMajor perspective_projection4m(r32 left, r32 right, r32 bottom, r32 top, r32 near, r32 far)
-{
-	Mat4RowMajor res = { 0 };
-	
-	res.data[0][0] = (2.0 * near)/(right - left);
-	res.data[0][2] = (right + left)/(right - left);
-    
-	res.data[1][1] = (2.0 * near)/(top - bottom);
-	res.data[1][2] = (top + bottom)/(top - bottom);
-    
-	res.data[2][2] = -(far + near)/(far - near);
-	res.data[2][3] = -2.0*far*near/(far - near);
-    
-	res.data[3][2] = -1.0;
-    
-	return res;
-}
-
-Mat4RowMajor perspective4m(r32 fov, r32 aspect_ratio, r32 near, r32 far)
-{
-	r32 cotangent = 1.0f / tanf(fov / 2.0f);
-	
-	Mat4RowMajor res = { 0 };
-    
-	res.data[0][0] = cotangent / aspect_ratio;
-	
-	res.data[1][1] = cotangent;
-    
-	res.data[2][2] = -(far + near) / (far - near);
-	res.data[2][3] = -2.0f * far * near / (far - near);
-    
-	res.data[3][2] = -1.0f;
-    
-	return res;
-}
-#endif
-
 
 #endif

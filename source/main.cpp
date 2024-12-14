@@ -88,8 +88,7 @@ struct TextState {
   TextChar* char_map;
 };
 
-#define BATCH_SIZE 500
-#define MAT4_ELE 4*4
+#define BATCH_SIZE 2000
 
 struct r32_array {
   r32* buffer;
@@ -164,46 +163,6 @@ struct Rect {
   Vec2 size;
   Vec3 position;
 };
-
-class FrameTimerV2 {
-public:
-  FrameTimerV2();
-  void update();
-  void enforceFramerate(u32 framerate);
-public:
-  r64 m_tCurr;
-  r64 m_tPrev;
-  r64 m_tDeltaMS;
-  r64 m_tDelta;
-};
-
-FrameTimerV2::FrameTimerV2() {
-  m_tCurr = SDL_GetTicks64();
-  m_tPrev = m_tCurr;
-  m_tDeltaMS = m_tCurr - m_tPrev;
-  m_tDelta = m_tDeltaMS / 1000.0f;
-}
-
-void FrameTimerV2::update() {
-  m_tPrev = m_tCurr;
-  m_tCurr = SDL_GetTicks64();
-  m_tDeltaMS = m_tCurr - m_tPrev;
-  m_tDelta = m_tDeltaMS / 1000.0f;
-}
-
-void FrameTimerV2::enforceFramerate(u32 target) {
-  r64 target_frametime = SDL_floor(
-    1000.0f/(r64)target
-  );
-  while(m_tDeltaMS < target_frametime) {
-    m_tCurr = SDL_GetTicks64();
-    m_tDeltaMS = m_tCurr - m_tPrev;
-    m_tDelta = m_tDeltaMS / 1000.0f;
-
-    // pass time
-    continue;
-  }
-}
 
 struct FrameTimer {
   r64 tCurr;
@@ -391,22 +350,35 @@ void gl_setup_colored_quad_optimized(
 
 void gl_cq_flush(GLRenderer* renderer) {
   glUseProgram(renderer->cq_batch_sp);
+  glEnable(GL_DEPTH_TEST);
+
+  glUniformMatrix4fv(
+    glGetUniformLocation(renderer->cq_batch_sp, "View"),
+    1, GL_FALSE, (renderer->cam_view).buffer
+  );
+
+  glUniformMatrix4fv(
+    glGetUniformLocation(renderer->cq_batch_sp, "Projection"), 
+    1, GL_FALSE, (renderer->cam_proj).buffer
+  );
 
   glBindBuffer(GL_ARRAY_BUFFER, renderer->cq_batch_vbo);
+
   // fill batch data
   // position batch
   glBufferSubData(
     GL_ARRAY_BUFFER, 
     0, 
-    renderer->cq_pos_batch.size*sizeof(r32), 
+    renderer->cq_pos_batch.capacity*sizeof(r32), 
     renderer->cq_pos_batch.buffer
   );
+
   // color batch
   glBufferSubData(
     GL_ARRAY_BUFFER, 
-    renderer->cq_pos_batch.size*sizeof(r32), 
-    renderer->cq_color_batch.size*sizeof(r32), 
-    renderer->cq_color_batch.buffer
+    renderer->cq_pos_batch.capacity*sizeof(r32), 
+    renderer->cq_color_batch.capacity*sizeof(r32), 
+    (void*)renderer->cq_color_batch.buffer
   );
 
   glBindVertexArray(renderer->cq_batch_vao);
@@ -424,38 +396,36 @@ void gl_draw_colored_quad_optimized(
   Vec3 color
 ) {
   Vec4 vertices[6] = {
-    init4v(-1.0f, -1.0f,  0.0f, 1.0f),// bottom-left
-    init4v( 1.0f, -1.0f,  0.0f, 1.0f),// bottom-right
-    init4v( 1.0f,  1.0f,  0.0f, 1.0f),// top-right
-    init4v( 1.0f,  1.0f,  0.0f, 1.0f),// top-right
-    init4v(-1.0f,  1.0f,  0.0f, 1.0f),// top-left
-    init4v(-1.0f, -1.0f,  0.0f, 1.0f) // bottom-left
+    Vec4{-1.0f, -1.0f,  0.0f, 1.0f},// bottom-left
+    Vec4{ 1.0f, -1.0f,  0.0f, 1.0f},// bottom-right
+    Vec4{ 1.0f,  1.0f,  0.0f, 1.0f},// top-right
+    Vec4{ 1.0f,  1.0f,  0.0f, 1.0f},// top-right
+    Vec4{-1.0f,  1.0f,  0.0f, 1.0f},// top-left
+    Vec4{-1.0f, -1.0f,  0.0f, 1.0f} // bottom-left
   };
 
   // setting quad size
-  Mat4 model = init_value4m(1.0);
+  Mat4 model = diag4m(1.0);
   Mat4 scale = scaling_matrix4m(size.x, size.y, 0.0f);
   model = multiply4m(scale, model);
   // setting quad position
   Mat4 translation = translation_matrix4m(position.x, position.y, position.z);
   model = multiply4m(translation, model);
+
+  Vec4 model_pos;
+  model_pos = multiply4mv(model, vertices[0]);
+  vertices[0] = model_pos;
+  model_pos = multiply4mv(model, vertices[1]);
+  vertices[1] = model_pos;
+  model_pos = multiply4mv(model, vertices[2]);
+  vertices[2] = model_pos;
+  model_pos = multiply4mv(model, vertices[3]);
+  vertices[3] = model_pos;
+  model_pos = multiply4mv(model, vertices[4]);
+  vertices[4] = model_pos;
+  model_pos = multiply4mv(model, vertices[5]);
+  vertices[5] = model_pos;
   
-  Mat4 mvp = calculate_mvp4m(model, renderer->cam_view, renderer->cam_proj);
-
-  Vec4 mvp_pos;
-  mvp_pos = multiply4mv(mvp, vertices[0]);
-  vertices[0] = mvp_pos;
-  mvp_pos = multiply4mv(mvp, vertices[1]);
-  vertices[1] = mvp_pos;
-  mvp_pos = multiply4mv(mvp, vertices[2]);
-  vertices[2] = mvp_pos;
-  mvp_pos = multiply4mv(mvp, vertices[3]);
-  vertices[3] = mvp_pos;
-  mvp_pos = multiply4mv(mvp, vertices[4]);
-  vertices[4] = mvp_pos;
-  mvp_pos = multiply4mv(mvp, vertices[5]);
-  vertices[5] = mvp_pos;
-
   array_insert(&renderer->cq_pos_batch, vertices[0].data, 4);
   array_insert(&renderer->cq_pos_batch, vertices[1].data, 4);
   array_insert(&renderer->cq_pos_batch, vertices[2].data, 4);
@@ -464,7 +434,6 @@ void gl_draw_colored_quad_optimized(
   array_insert(&renderer->cq_pos_batch, vertices[5].data, 4);
 
   // initialise color to be per vertex to allow batching
-  // @todo: really need to optimise this
   array_insert(&renderer->cq_color_batch, color.data, 3);
   array_insert(&renderer->cq_color_batch, color.data, 3);
   array_insert(&renderer->cq_color_batch, color.data, 3);
@@ -496,7 +465,7 @@ void gl_draw_colored_quad(
     renderer->cq_init = 1;
   }
   // setting quad size
-  Mat4 model = init_value4m(1.0);
+  Mat4 model = diag4m(1.0);
   Mat4 scale = scaling_matrix4m(size.x, size.y, 0.0f);
   model = multiply4m(scale, model);
   // setting quad position
@@ -509,6 +478,7 @@ void gl_draw_colored_quad(
     glGetUniformLocation(renderer->cq_sp, "Model"), 
     1, GL_FALSE, model.buffer
   );
+
   glUniformMatrix4fv(
     glGetUniformLocation(renderer->cq_sp, "View"), 
     1, GL_FALSE, (renderer->cam_view).buffer
@@ -811,9 +781,10 @@ int main(int argc, char* argv[])
   // 3 columns, 6 rows
   u32 pos_ele_count =  BATCH_SIZE * 4*6;
   u32 color_ele_count = BATCH_SIZE * 3*6;
-  u32 mem_size = pos_ele_count + color_ele_count;
+  // 1GB <= (((1b*1024)kb*1024)mb*1024)mb
+  u32 mem_size = (1024*1024*1024);
   void* batch_memory = calloc(mem_size, sizeof(r32));
-  Arena batch_arena = {0};
+  Arena batch_arena;
   arena_init(&batch_arena, (unsigned char*)batch_memory, mem_size*sizeof(r32));
   array_init(&batch_arena, &(renderer->cq_pos_batch), pos_ele_count);
   array_init(&batch_arena, &(renderer->cq_color_batch), color_ele_count);
@@ -913,11 +884,11 @@ int main(int argc, char* argv[])
   Vec2 p_motion_dir = Vec2{0.0f, 0.0f};
 
   GameState state = {0};
-  state.world_size = v2(scr_width, scr_height);
-  state.screen_size = v2(scr_width, scr_height);
-  state.render_scale = v2(render_scale);
+  state.world_size = Vec2{(r32)scr_width, (r32)scr_height};
+  state.screen_size = Vec2{(r32)scr_width, (r32)scr_height};
+  state.render_scale = vec2(render_scale);
   Vec3 player_position = Vec3{0.0f, 70.0f, -1.0f};
-  Vec2 player_size = Vec2{40.0f, 40.0f};
+  Vec2 player_size = vec2(40.0f);
   state.player = rect(player_position, player_size);
 
   // @thinking: level object handling
@@ -947,7 +918,6 @@ int main(int argc, char* argv[])
   cam_rb_limit = get_screen_position_from_percent(
     state, Vec2{80.0f, 20.0f}
   );
-
 
   Controller controller = {0};
   r32 key_down_time[5] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
@@ -1190,7 +1160,7 @@ int main(int argc, char* argv[])
     else 
     {
         Vec2 dir = get_move_dir(controller);
-        pd_1 = dir * 1.0f;
+        pd_1 = dir * render_scale;
         if (pd_1.x < 0.0f) {
           p_motion_dir.x = -1.0f;
         } else if (pd_1.x > 0.0f) {
@@ -1337,21 +1307,40 @@ int main(int argc, char* argv[])
                          state.wall.size,
                          Vec3{1.0f, 0.0f, 0.0f});
 
-    for (int i=0;i<4000;i++) {
-      u32 max_row_ele = 100;
-      Vec2 based_size = div2vf(state.render_scale*state.screen_size, max_row_ele);
+    // benchmark code
+    u32 max_cq_count = 1000;
+    u32 max_row_ele = 50;
+    u32 max_col_ele = max_cq_count/max_row_ele;
+    Vec2 screen_render_size = (state.render_scale * state.screen_size)/2.0f;
+    Vec2 based_size = Vec2{
+      screen_render_size.x / max_row_ele, 
+      screen_render_size.y / max_col_ele
+    };
+    for (int i=0;i<max_cq_count;i++) {
       Vec3 pos_i = Vec3{
-        (atom_size.x+based_size.x)*(r32)(i%max_row_ele), 
-        (atom_size.y+based_size.y)*(r32)(i/max_row_ele), 
+        (2.0f*based_size.x + atom_size.x)*(r32)(i%max_row_ele), 
+        (2.0f*based_size.y + atom_size.y)*(r32)(i/max_row_ele), 
         -5.0f
       };
-      r32 color_factor = (r32)(1000-i)/1000.0f;
+      r32 cf_r = ((r32)(i%max_row_ele))/(r32)max_row_ele;
+      r32 cf_g = ((r32)i/(r32)max_col_ele)/(r32)max_col_ele;
+      r32 cf_b = (r32)(max_cq_count-i)/(r32)max_cq_count;
+#if 0
+      gl_draw_colored_quad(
+          renderer,
+          pos_i,
+          based_size,
+          Vec3{cf_r, cf_g, cf_b}
+      );
+#endif
+#if 1
       gl_draw_colored_quad_optimized(
           renderer,
           pos_i,
-          atom_size,
-          Vec3{color_factor, color_factor, color_factor}
+          based_size,
+          Vec3{cf_r, cf_g, cf_b}
       );
+#endif
     }
     gl_cq_flush(renderer);
 
@@ -1385,44 +1374,43 @@ int main(int argc, char* argv[])
                      Vec3{0.0f, 0.0f, 0.0f});   // color
       
     }
-    char accel_output[50];
-    sprintf(accel_output, "effective_force %f", effective_force);
-    gl_render_text(renderer,
-                   accel_output,
-                   Vec2{500.0f, 150.0f},       // position
-                   28.0f,                      // size
-                   Vec3{0.0f, 0.0f, 0.0f});    // color
-    char move_state_output[50];
+    //char accel_output[50];
+    //sprintf(accel_output, "effective_force %f", effective_force);
+    //gl_render_text(renderer,
+    //               accel_output,
+    //               Vec2{500.0f, 150.0f},       // position
+    //               28.0f*render_scale,                      // size
+    //               Vec3{0.0f, 0.0f, 0.0f});    // color
     
     char fmt_buffer[50];
-    sprintf(fmt_buffer, "player moving? %d", is_key_down_x);
-    gl_render_text(renderer,
-                   fmt_buffer,
-                   Vec2{900.0f, 40.0f},      // position
-                   28.0f,                     // size
-                   Vec3{0.0f, 0.0f, 0.0f});   // color
+    //sprintf(fmt_buffer, "player moving? %d", is_key_down_x);
+    //gl_render_text(renderer,
+    //               fmt_buffer,
+    //               Vec2{900.0f, 40.0f},      // position
+    //               28.0f*render_scale,                     // size
+    //               Vec3{0.0f, 0.0f, 0.0f});   // color
 
     sprintf(fmt_buffer, "frametime: %f", timer.tDelta);
     gl_render_text(renderer,
                    fmt_buffer,
                    Vec2{900.0f, 90.0f},      // position
-                   280.0f,                     // size
+                   28.0f*render_scale,                     // size
                    Vec3{0.0f, 0.0f, 0.0f});   // color
     
-    sprintf(fmt_buffer, "%f pixels", pd_1.x);
+    //sprintf(fmt_buffer, "%f pixels", pd_1.x);
 
-    gl_render_text(renderer,
-                   fmt_buffer,
-                   Vec2{500.0f, 200.0f},       // position
-                   28.0f,                      // size
-                   Vec3{0.0f, 0.0f, 0.0f});    // color
+    //gl_render_text(renderer,
+    //               fmt_buffer,
+    //               Vec2{500.0f, 200.0f},       // position
+    //               28.0f*render_scale,                      // size
+    //               Vec3{0.0f, 0.0f, 0.0f});    // color
 
-    sprintf(fmt_buffer, "collide: x(%d),y(%d)", collidex, collidey);
-    gl_render_text(renderer,
-                   fmt_buffer,
-                   Vec2{500.0f, 1000.0f},       // position
-                   28.0f,                      // size
-                   Vec3{0.0f, 0.0f, 0.0f});    // color
+    //sprintf(fmt_buffer, "collide: x(%d),y(%d)", collidex, collidey);
+    //gl_render_text(renderer,
+    //               fmt_buffer,
+    //               Vec2{500.0f, 1000.0f},       // position
+    //               28.0f*render_scale,                      // size
+    //               Vec3{0.0f, 0.0f, 0.0f});    // color
     SDL_GL_SwapWindow(window);
 
   }
