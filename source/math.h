@@ -8,26 +8,21 @@
 #define ABS(x) ((x) < 0 ? (-(x)) : (x))
 #define MIN(x,y) ((x) < (y) ? (y) : (x))
 
-// @todo: 
+// @todo:
 // - make everything simd
-
-// @note: Regarding functions written for completeness sake
-// These operations are just defined and not expressed. 
-// They are kept here for completeness sake BUT
-// since I have not had to do anything related to these, I have not created them.
-
+#define USE_SSE 1
 
 r32 clampf(r32 x, r32 bottom, r32 top)
 {
     if (x < bottom)
     {
         x = bottom;
-    } 
+    }
     else if (x > top)
     {
         x = top;
     }
-    
+
     return x;
 }
 
@@ -99,12 +94,12 @@ union Vec2 {
 };
 
 union Vec3 {
-	struct {
-		r32 x;
-		r32 y;
-		r32 z;
-	};
-	r32 data[3];
+    struct {
+	r32 x;
+	r32 y;
+	r32 z;
+    };
+    r32 data[3];
 
   Vec2 v2() {
     return Vec2{x, y};
@@ -114,22 +109,21 @@ union Vec3 {
 typedef Vec3 RGB;
 
 union Vec4 {
-	struct {
-		r32 x;
-		r32 y;
-		r32 z;
-		r32 w;
-	};
-	r32 data[4];
+    struct {
+	r32 x;
+	r32 y;
+	r32 z;
+	r32 w;
+    };
+    r32 data[4];
+    __m128 sse;
 };
 
 // @note: matrix and all matrix operations will be done in column major
-// @todo: be able to specify and configure this in the future
-// possibly through separate functions
 union Mat4 {
-	Vec4 row[4];
-	r32 data[4][4];
-	r32 buffer[16];
+    Vec4 row[4];
+    r32 data[4][4];
+    r32 buffer[16];
 };
 
 // ==== Vec2 ====
@@ -176,8 +170,8 @@ Vec2 divide2v(Vec2 a, Vec2 b) {
 }
 
 r32 magnitude2v(Vec2 v) {
-	r32 res = sqrtf(SQUARE(v.x) + SQUARE(v.y));
-	return res;
+    r32 res = sqrtf(SQUARE(v.x) + SQUARE(v.y));
+    return res;
 }
 
 Vec2 normalize2v(Vec2 v) {
@@ -192,7 +186,7 @@ Vec2 normalize2v(Vec2 v) {
 Vec3 vec3(r32 s);
 Vec3 subtract3vf(Vec3 v, r32 scaler);
 Vec3 multiply3v(Vec3 a, Vec3 b);
-Vec3 divide3v(Vec3 a, Vec3 b); 
+Vec3 divide3v(Vec3 a, Vec3 b);
 
 Vec3 add3vf(Vec3 vec, r32 scaler)
 {
@@ -200,7 +194,7 @@ Vec3 add3vf(Vec3 vec, r32 scaler)
 	res.x = vec.x + scaler;
 	res.y = vec.y + scaler;
 	res.z = vec.z + scaler;
-    
+
 	return res;
 }
 
@@ -220,7 +214,7 @@ Vec3 subtract3v(Vec3 a, Vec3 b)
 	res.x = a.x - b.x;
 	res.y = a.y - b.y;
 	res.z = a.z - b.z;
-    
+
 	return res;
 }
 
@@ -230,7 +224,7 @@ Vec3 multiply3vf(Vec3 vec, r32 scaler)
 	res.x = vec.x * scaler;
 	res.y = vec.y * scaler;
 	res.z = vec.z * scaler;
-    
+
 	return res;
 }
 
@@ -241,7 +235,7 @@ Vec3 divide3vf(Vec3 vec, r32 scaler)
 	res.x = vec.x / scaler;
 	res.y = vec.y / scaler;
 	res.z = vec.z / scaler;
-    
+
 	return res;
 }
 
@@ -250,9 +244,9 @@ r32 dot3v(Vec3 a, Vec3 b)
 	r32 x = a.x * b.x;
 	r32 y = a.y * b.y;
 	r32 z = a.z * b.z;
-    
+
 	r32 res = x + y + z;
-    
+
 	return res;
 }
 
@@ -275,25 +269,46 @@ Vec3 cross3v(Vec3 a, Vec3 b)
 	res.x = (a.y * b.z) - (a.z * b.y);
 	res.y = (a.z * b.x) - (a.x * b.z);
 	res.z = (a.x * b.y) - (a.y * b.x);
-    
+
 	return res;
 }
 
 // ============================================== Vec4, Mat4 ==============================================
-
+static u64 tick_freq = SDL_GetPerformanceFrequency();
+static u64 cum_math_ticks = 0;
+static r64 cum_math_time = 0.0f;
 // ==================== Vec4 ====================
 Vec4 vec4(r32 s)
 {
 	Vec4 res;
+#if USE_SSE
+	res.sse = _mm_set_ps1(s);
+#else
 	res.x = s;
 	res.y = s;
 	res.z = s;
 	res.w = s;
-    
+#endif
+
 	return res;
 }
 
-// @note: Written for completeness sake. 
+Vec4 vec4(r32 x, r32 y, r32 z, r32 w)
+{
+	Vec4 res;
+#if USE_SSE
+	res.sse = _mm_setr_ps(x, y, z, w);
+#else
+	res.x = x;
+	res.y = y;
+	res.z = z;
+	res.w = w;
+#endif
+
+	return res;
+}
+
+// @note: Written for completeness sake.
 Vec4 add4vf(Vec4 vec, r32 scaler);
 Vec4 add4v(Vec4 a, Vec4 b);
 Vec4 subtract4vf(Vec4 vec, r32 scaler);
@@ -318,7 +333,7 @@ Mat4 diag4m(r32 value) {
 	res.data[1][1] = value;
 	res.data[2][2] = value;
 	res.data[3][3] = value;
-    
+
 	return res;
 }
 
@@ -345,7 +360,7 @@ Mat4 add4m(Mat4 a, Mat4 b)
 	res.data[3][1] = a.data[3][1] + b.data[3][1];
 	res.data[3][2] = a.data[3][2] + b.data[3][2];
 	res.data[3][3] = a.data[3][3] + b.data[3][3];
-	
+
 	return res;
 }
 
@@ -372,13 +387,31 @@ Mat4 subtract4m(Mat4 a, Mat4 b)
 	res.data[3][1] = a.data[3][1] - b.data[3][1];
 	res.data[3][2] = a.data[3][2] - b.data[3][2];
 	res.data[3][3] = a.data[3][3] - b.data[3][3];
-    
+
 	return res;
 }
 
 Vec4 multiply4mv(Mat4 m, Vec4 v)
 {
-  Vec4 res = vec4(0);
+    r64 prev_tick = SDL_GetPerformanceCounter();
+
+    Vec4 res = vec4(0);
+#if USE_SSE
+    __m128 scalar = _mm_shuffle_ps(v.sse, v.sse, 0x0);
+    res.sse = _mm_mul_ps(scalar, m.row[0].sse);
+
+    scalar = _mm_shuffle_ps(v.sse, v.sse, 0x55);
+    __m128 mult = _mm_mul_ps(scalar, m.row[1].sse);
+    res.sse = _mm_add_ps(res.sse, mult);
+
+    scalar = _mm_shuffle_ps(v.sse, v.sse, 0xaa);
+    mult = _mm_mul_ps(scalar, m.row[2].sse);
+    res.sse = _mm_add_ps(res.sse, mult);
+
+    scalar = _mm_shuffle_ps(v.sse, v.sse, 0xff);
+    mult = _mm_mul_ps(scalar, m.row[3].sse);
+    res.sse = _mm_add_ps(res.sse, mult);
+#else
 
   res.x += v.x*m.data[0][0];
   res.y += v.x*m.data[0][1];
@@ -399,11 +432,15 @@ Vec4 multiply4mv(Mat4 m, Vec4 v)
   res.y += v.w*m.data[3][1];
   res.z += v.w*m.data[3][2];
   res.w += v.w*m.data[3][3];
+#endif
+
+    r64 curr_tick = SDL_GetPerformanceCounter();
+    cum_math_ticks += curr_tick - prev_tick;
 
   return res;
 }
 
-Mat4 multiply4m(Mat4 a, Mat4 b) 
+Mat4 multiply4m(Mat4 a, Mat4 b)
 {
   Mat4 res = { 0 };
 
@@ -416,15 +453,15 @@ Mat4 multiply4m(Mat4 a, Mat4 b)
 }
 // ==== Matrix Transformation ====
 
-Mat4 scaling_matrix4m(r32 x, r32 y, r32 z)	
+Mat4 scaling_matrix4m(r32 x, r32 y, r32 z)
 {
   // generates a 4x4 scaling matrix for scaling each of the x,y,z axis
-	Mat4 res = diag4m(1.0f);
-	res.data[0][0] = x;
-	res.data[1][1] = y;
-	res.data[2][2] = z;
-    
-	return res;
+  Mat4 res = diag4m(1.0f);
+  res.data[0][0] = x;
+  res.data[1][1] = y;
+  res.data[2][2] = z;
+
+  return res;
 }
 
 Mat4 translation_matrix4m(r32 x, r32 y, r32 z)
@@ -479,7 +516,7 @@ Mat4 lookat4m(Vec3 up, Vec3 forward, Vec3 right, Vec3 position)
 	/*
 	* @note: The construction of the lookat matrix is not obvious. For that reason here is the supplemental matrial I have used to understand
 	* things while I maintain my elementary understanding of linear algebra.
-	* 1. This youtube video (https://www.youtube.com/watch?v=3ZmqJb7J5wE) helped me understand why we invert matrices. 
+	* 1. This youtube video (https://www.youtube.com/watch?v=3ZmqJb7J5wE) helped me understand why we invert matrices.
 	*		 It is because, we are moving from the position matrix which is a global to the view matrix which
 	*		 is a local. It won't be very clear from this illustration alone, so you would be best served watching the video and recollecting and understanding from there.
 	* 2. This article (https://twodee.org/blog/17560) derives (or rather shows), in a very shallow way how we get to the look at matrix.
@@ -493,7 +530,7 @@ Mat4 lookat4m(Vec3 up, Vec3 forward, Vec3 right, Vec3 position)
 	res.data[3][1] = -dot3v(up, position);
 	res.data[3][2] = -dot3v(forward, position);
   res.data[3][3] = 1.0f;
-    
+
 	return res;
 }
 
@@ -504,7 +541,7 @@ Vec3 camera_look_around(r32 angle_pitch, r32 angle_yaw)
   camera_look.y = sinf(angle_pitch);
   camera_look.z = sinf(angle_yaw) * cosf(angle_pitch);
   camera_look = normalize3v(camera_look);
-  
+
   return camera_look;
 }
 
@@ -512,14 +549,14 @@ Mat4 camera_create4m(Vec3 camera_pos, Vec3 camera_look, Vec3 camera_up)
 {
 	// @note: We do this because this allows the camera to have the axis it looks at
 	// inwards be the +z axis.
-	// If we did not do this, then the inward axis the camera looks at would be negative. 
+	// If we did not do this, then the inward axis the camera looks at would be negative.
 	// I am still learning from learnopengl.com but I imagine that this was done for conveniences' sake.
 	Vec3 camera_forward_dir = normalize3v(subtract3v(camera_pos, camera_look));
 	Vec3 camera_right_dir   = normalize3v(cross3v(camera_up, camera_forward_dir));
 	Vec3 camera_up_dir      = normalize3v(cross3v(camera_forward_dir, camera_right_dir));
-    
+
 	Mat4 res = lookat4m(camera_up_dir, camera_forward_dir, camera_right_dir, camera_pos);
-    
+
 	return res;
 }
 
