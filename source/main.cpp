@@ -165,27 +165,29 @@ struct Rect {
 };
 
 struct FrameTimer {
-  r64 tCurr;
-  r64 tPrev;
+  u64 tCurr;
+  u64 tPrev;
   r64 tDeltaMS;
   r64 tDelta;
+  u64 tFreq;
 };
 
 FrameTimer frametimer() {
   FrameTimer res = {};
-  res.tCurr = SDL_GetTicks64();
+  res.tFreq = SDL_GetPerformanceFrequency();
+  res.tCurr = SDL_GetPerformanceCounter();
   res.tPrev = res.tCurr;
-  res.tDeltaMS = res.tCurr - res.tPrev;
-  res.tDelta = res.tDeltaMS / 1000.0f;
+  res.tDelta = (r64)(res.tCurr - res.tPrev) / (r64)res.tFreq;
+  res.tDeltaMS = res.tDelta * 1000.0f;
 
   return res;
 }
 
 void update_frame_timer(FrameTimer *ft) {
   ft->tPrev = ft->tCurr;
-  ft->tCurr = SDL_GetTicks64();
-  ft->tDeltaMS = ft->tCurr - ft->tPrev;
-  ft->tDelta = ft->tDeltaMS / 1000.0f;
+  ft->tCurr = SDL_GetPerformanceCounter();
+  ft->tDelta = (r64)(ft->tCurr - ft->tPrev) / (r64)ft->tFreq;
+  ft->tDeltaMS = ft->tDelta * 1000.0f;
 }
 
 void enforce_frame_rate(FrameTimer *ft, u32 target) {
@@ -193,9 +195,9 @@ void enforce_frame_rate(FrameTimer *ft, u32 target) {
     1000.0f/(r64)target
   );
   while(ft->tDeltaMS < target_frametime) {
-    ft->tCurr = SDL_GetTicks64();
-    ft->tDeltaMS = ft->tCurr - ft->tPrev;
-    ft->tDelta = ft->tDeltaMS / 1000.0f;
+    ft->tCurr = SDL_GetPerformanceCounter();
+    ft->tDelta = (r64)(ft->tCurr - ft->tPrev) / ft->tFreq;
+    ft->tDeltaMS = ft->tDelta * 1000.0f;
 
     // pass time
     continue;
@@ -757,28 +759,17 @@ int main(int argc, char* argv[])
     return -1;
   }
   
-	// load glad
-	if (!gladLoadGLLoader((GLADloadproc)SDL_GL_GetProcAddress)) {
-		printf("ERROR :: Failed to initialize Glad\n");
-		return -1;
-	}
+    // load glad
+    if (!gladLoadGLLoader((GLADloadproc)SDL_GL_GetProcAddress)) {
+	    printf("ERROR :: Failed to initialize Glad\n");
+	    return -1;
+    }
   
   // vsync controls: 0 = OFF | 1 = ON (Default)
   SDL_GL_SetSwapInterval(0);
   
   GLRenderer *renderer = new GLRenderer();
 
-  // @resume: I am working on creating an efficient quad renderer via
-  // instancing, in order to achieve that I have absolutely butchered the 
-  // performance of my program by making it render 200,000 quads
-  // the goal is to use this to see when performance plummets
-  //
-  // so far the progress is that, I have somewhat implemented a jank system
-  // I need to write shaders, it compiles and runs but it is useless
-  // @todo: fix the renderer.
-
-  // @note: batch rendering
-  // 3 columns, 6 rows
   u32 pos_ele_count =  BATCH_SIZE * 4*6;
   u32 color_ele_count = BATCH_SIZE * 3*6;
   // 1GB <= (((1b*1024)kb*1024)mb*1024)mb
@@ -810,7 +801,7 @@ int main(int argc, char* argv[])
   gl_setup_colored_quad_optimized(renderer, cq_batch_sp);
   
   
-  r32 render_scale = 8.0f;
+  r32 render_scale = 2.0f;
   // ==========
   // setup text
   // 1. setup free type library stuff
@@ -872,7 +863,7 @@ int main(int argc, char* argv[])
   );
 
   // @section: gameplay variables
-  r32 motion_scale = 1.5f;
+  r32 motion_scale = 2.0f;
   r32 fall_accelx = 3.0f*motion_scale;
   r32 move_accelx = 6.0f*motion_scale;
   r32 freefall_accel = -11.8f*motion_scale;
@@ -935,7 +926,7 @@ int main(int argc, char* argv[])
   while (game_running) 
   {
     update_frame_timer(&timer);
-    //enforce_frame_rate(&timer, 60);
+    enforce_frame_rate(&timer, 60);
 
     controller.jump = 0;
     controller.toggle_gravity = 0;
@@ -1159,8 +1150,9 @@ int main(int argc, char* argv[])
     }
     else 
     {
+	// @no_clip_movement
         Vec2 dir = get_move_dir(controller);
-        pd_1 = dir * render_scale;
+        pd_1 = dir * 5.0f * render_scale;
         if (pd_1.x < 0.0f) {
           p_motion_dir.x = -1.0f;
         } else if (pd_1.x > 0.0f) {
@@ -1292,61 +1284,27 @@ int main(int argc, char* argv[])
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     
     // player
-    gl_draw_colored_quad(renderer, 
+    gl_draw_colored_quad_optimized(renderer, 
                          state.player.position,            // position
                          state.player.size,         // size
                          Vec3{0.45f, 0.8f, 0.2f});
     // floor
-    gl_draw_colored_quad(renderer,
+    gl_draw_colored_quad_optimized(renderer,
                          state.floor.position,
                          state.floor.size,
                          Vec3{1.0f, 1.0f, 1.0f});
     // wall
-    gl_draw_colored_quad(renderer, 
+    gl_draw_colored_quad_optimized(renderer, 
                          state.wall.position,
                          state.wall.size,
                          Vec3{1.0f, 0.0f, 0.0f});
 
-    // benchmark code
-    u32 max_cq_count = 1000;
-    u32 max_row_ele = 50;
-    u32 max_col_ele = max_cq_count/max_row_ele;
-    Vec2 screen_render_size = (state.render_scale * state.screen_size)/2.0f;
-    Vec2 based_size = Vec2{
-      screen_render_size.x / max_row_ele, 
-      screen_render_size.y / max_col_ele
-    };
-    for (int i=0;i<max_cq_count;i++) {
-      Vec3 pos_i = Vec3{
-        (2.0f*based_size.x + atom_size.x)*(r32)(i%max_row_ele), 
-        (2.0f*based_size.y + atom_size.y)*(r32)(i/max_row_ele), 
-        -5.0f
-      };
-      r32 cf_r = ((r32)(i%max_row_ele))/(r32)max_row_ele;
-      r32 cf_g = ((r32)i/(r32)max_col_ele)/(r32)max_col_ele;
-      r32 cf_b = (r32)(max_cq_count-i)/(r32)max_cq_count;
-#if 0
-      gl_draw_colored_quad(
-          renderer,
-          pos_i,
-          based_size,
-          Vec3{cf_r, cf_g, cf_b}
-      );
-#endif
-#if 1
-      gl_draw_colored_quad_optimized(
-          renderer,
-          pos_i,
-          based_size,
-          Vec3{cf_r, cf_g, cf_b}
-      );
-#endif
-    }
     gl_cq_flush(renderer);
 
-    array_clear(&renderer->cq_pos_batch);
-    array_clear(&renderer->cq_color_batch);
+    array_clear(r32, renderer->cq_pos_batch);
+    array_clear(r32, renderer->cq_color_batch);
     renderer->cq_batch_count = 0;
+    
     // render ui text
     
     if (is_collide_x || is_collide_y)
@@ -1374,21 +1332,8 @@ int main(int argc, char* argv[])
                      Vec3{0.0f, 0.0f, 0.0f});   // color
       
     }
-    //char accel_output[50];
-    //sprintf(accel_output, "effective_force %f", effective_force);
-    //gl_render_text(renderer,
-    //               accel_output,
-    //               Vec2{500.0f, 150.0f},       // position
-    //               28.0f*render_scale,                      // size
-    //               Vec3{0.0f, 0.0f, 0.0f});    // color
     
     char fmt_buffer[50];
-    //sprintf(fmt_buffer, "player moving? %d", is_key_down_x);
-    //gl_render_text(renderer,
-    //               fmt_buffer,
-    //               Vec2{900.0f, 40.0f},      // position
-    //               28.0f*render_scale,                     // size
-    //               Vec3{0.0f, 0.0f, 0.0f});   // color
 
     sprintf(fmt_buffer, "frametime: %f", timer.tDelta);
     gl_render_text(renderer,
@@ -1397,20 +1342,6 @@ int main(int argc, char* argv[])
                    28.0f*render_scale,                     // size
                    Vec3{0.0f, 0.0f, 0.0f});   // color
     
-    //sprintf(fmt_buffer, "%f pixels", pd_1.x);
-
-    //gl_render_text(renderer,
-    //               fmt_buffer,
-    //               Vec2{500.0f, 200.0f},       // position
-    //               28.0f*render_scale,                      // size
-    //               Vec3{0.0f, 0.0f, 0.0f});    // color
-
-    //sprintf(fmt_buffer, "collide: x(%d),y(%d)", collidex, collidey);
-    //gl_render_text(renderer,
-    //               fmt_buffer,
-    //               Vec2{500.0f, 1000.0f},       // position
-    //               28.0f*render_scale,                      // size
-    //               Vec3{0.0f, 0.0f, 0.0f});    // color
     SDL_GL_SwapWindow(window);
 
   }
