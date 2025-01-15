@@ -1,0 +1,32 @@
+Project Estimation/Target ~ 1 - 2 months (was so off on this)
+well, to be fair, if I account for actual time worked, then I was not
+so off on my estimate, I think I am still in the estimation range
+Tasks:
+
+DONE:
+- gravity - very barebones version done
+- horizontal motion on ground
+  - accelerate
+  - constant speed
+  - decelerate to give impression of sliding
+- horizontal motion when falling
+  - inertia-like movement when accelerating prior to falling
+  - loss of inertia when player was at high speed before
+    sliding off and other small movement when in free fall
+  - movement and deceleration when not moving in free fall
+- Jumping
+- Fixed framerate to prevent weird quirks with movement
+- Basic camera follower
+- move from row-major to column major setup for math library
+- Efficient Quad Renderer
+
+TODO:
+- Some way to make and define levels, maybe just make this grid based?
+- Level Creation
+- Update camera follower for centering player in view (with limits) after
+  a few seconds (maybe like 2 seconds)
+- Level completion Object
+- Audio
+- make movement grid based
+- Implement Broad Phase Collision for efficient collision handling
+- vectorize math library with simd

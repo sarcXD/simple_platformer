@@ -33,6 +33,71 @@ r32 clampf(r32 x, r32 bottom, r32 top)
 
 
 // ==== Vector Math ====
+union IVec2 {
+  struct {
+    u32 x;
+    u32 y;
+  };
+  u32 data[2];
+
+  IVec2 operator+(u32 scaler) {
+    IVec2 res;
+    res.x = this->x + scaler;
+    res.y = this->y + scaler;
+
+    return res;
+  }
+
+  IVec2 operator+(IVec2 v) {
+    IVec2 res;
+    res.x = this->x + v.x;
+    res.y = this->y + v.y;
+
+    return res;
+  }
+
+  IVec2 operator-(u32 scaler) {
+    IVec2 res;
+    res.x = this->x - scaler;
+    res.y = this->y - scaler;
+
+    return res;
+  }
+
+  IVec2 operator-(IVec2 v) {
+    IVec2 res;
+    res.x = this->x - v.x;
+    res.y = this->y - v.y;
+
+    return res;
+  }
+
+  IVec2 operator*(u32 scaler) {
+    IVec2 res;
+    res.x = this->x * scaler;
+    res.y = this->y * scaler;
+
+    return res;
+  }
+
+  IVec2 operator*(IVec2 v) {
+    IVec2 res;
+    res.x = this->x * v.x;
+    res.y = this->y * v.y;
+
+    return res;
+  }
+
+  IVec2 operator/(u32 scaler) {
+    SDL_assert(scaler != 0);
+    IVec2 res;
+    res.x = this->x / scaler;
+    res.y = this->y / scaler;
+
+    return res;
+  }
+};
+
 union Vec2 {
   struct {
     r32 x;

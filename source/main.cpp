@@ -38,6 +38,8 @@
 * - Audio
 */
 
+#include <stdint.h>
+
 typedef uint8_t  u8;
 typedef uint16_t u16;
 typedef uint32_t u32;
@@ -90,37 +92,31 @@ struct TextState {
 
 #define BATCH_SIZE 2000
 
-struct r32_array {
-  r32* buffer;
-  u32 size;
-  u32 capacity;
+#define KB(x) (1024 * (x))
+#define MB(x) (1024 * KB((x)))
+#define GB(x) (1024 * MB((x)))
+
+#include "array/array.cpp"
+
+enum ENTITY_TYPE {
+    PLAYER = 0,
+    OBSTACLE = 1,
+    GOAL = 2
 };
 
-void array_init(Arena* a, r32_array* arr, u32 capacity) {
-  arr->buffer = (r32*)arena_alloc(a, capacity*sizeof(r32));
-
-  assert(arr->buffer != NULL);
-
-  arr->size = 0;
-  arr->capacity = capacity;
-}
-
-void array_insert(r32_array* arr, r32* ele, u32 ele_size) {
-  b8 assert_cond = arr->size + ele_size <= arr->capacity;
-  if (!assert_cond) {
-    SDL_Log("arr->size: %d, arr->capacity: %d", arr->size, arr->capacity);
-  }
-  assert(assert_cond);
-
-  void* ptr = &arr->buffer[arr->size];
-  memcpy(ptr, ele, sizeof(r32)*ele_size);
-  arr->size += ele_size;
-}
-
-void array_clear(r32_array* arr) {
-  memset(arr->buffer, 0, sizeof(r32)*arr->capacity);
-  arr->size = 0;
-}
+struct Level {
+    /*
+     * Level will be a 2d array with positions defining the elements
+     * the dimensions of the array are: size.width * size.height
+     *
+     * here size is an IVec2 and it's parameters are multiples of atom_size
+     * atom_size is a parameter the game defines as the smallest chunk of pixels
+     * the game will consider
+     */
+    const char *version = "0.0.1";
+    u32_array map;
+    IVec2 size;
+};
 
 struct GLRenderer {
   // colored quad
@@ -734,8 +730,8 @@ Vec3 get_screen_position_from_percent(GameState state, Vec3 v) {
 
 int main(int argc, char* argv[])
 {
-  u32 scr_width = 1024;
-  u32 scr_height = 768;
+  u32 scr_width = 1280;
+  u32 scr_height = 720;
   
   if (SDL_Init(SDL_INIT_VIDEO) != 0)
   {
@@ -773,7 +769,7 @@ int main(int argc, char* argv[])
   u32 pos_ele_count =  BATCH_SIZE * 4*6;
   u32 color_ele_count = BATCH_SIZE * 3*6;
   // 1GB <= (((1b*1024)kb*1024)mb*1024)mb
-  u32 mem_size = (1024*1024*1024);
+  u32 mem_size = GB(1);
   void* batch_memory = calloc(mem_size, sizeof(r32));
   Arena batch_arena;
   arena_init(&batch_arena, (unsigned char*)batch_memory, mem_size*sizeof(r32));
@@ -801,7 +797,7 @@ int main(int argc, char* argv[])
   gl_setup_colored_quad_optimized(renderer, cq_batch_sp);
   
   
-  r32 render_scale = 2.0f;
+  r32 render_scale = 1.0f;
   // ==========
   // setup text
   // 1. setup free type library stuff
@@ -874,30 +870,32 @@ int main(int argc, char* argv[])
   // direction in which player is effectively travelling
   Vec2 p_motion_dir = Vec2{0.0f, 0.0f};
 
-  GameState state = {0};
-  state.world_size = Vec2{(r32)scr_width, (r32)scr_height};
-  state.screen_size = Vec2{(r32)scr_width, (r32)scr_height};
-  state.render_scale = vec2(render_scale);
-  Vec3 player_position = Vec3{0.0f, 70.0f, -1.0f};
-  Vec2 player_size = vec2(40.0f);
-  state.player = rect(player_position, player_size);
-
   // @thinking: level object handling
   // there should be a most smallest supported unit
   // smallest_size: 16x16
   // object placement should be in pixels 
   // in order to scale to different resolutions it should be multiplied by
   // scaling factor
-  Vec2 atom_size = {16.0f, 16.0f};
+  Vec2 atom_size = Vec2{16.0f, 16.0f} * render_scale;
 
-  Vec3 floor_position = Vec3{640.0f*render_scale, 400.0f*render_scale, -2.0f};
-  Vec2 floor_size = atom_size*Vec2{40.0f, 1.5f};
+  GameState state = {0};
+  state.world_size = Vec2{(r32)scr_width, (r32)scr_height};
+  state.screen_size = Vec2{(r32)scr_width, (r32)scr_height};
+  state.render_scale = vec2(render_scale);
+  Vec3 player_position = Vec3{0.0f, 70.0f, -1.0f};
+  Vec2 player_size = atom_size * render_scale;
+  state.player = rect(player_position, player_size);
+
+
+  r32 obstacle_z = -2.0f;
+  Vec3 floor_position = Vec3{640.0f*render_scale, 400.0f*render_scale, obstacle_z};
+  Vec2 floor_size = atom_size * Vec2{5.0f, 1.0f};
   state.floor = rect(floor_position, floor_size);
 
   Vec3 wall_position = get_world_position_from_percent(
-    state, Vec3{20.0f, 10.0f, -2.0f}
+    state, Vec3{20.0f, 10.0f, obstacle_z}
   );
-  Vec2 wall_size = atom_size*Vec2{1.5f, 8.0f};
+  Vec2 wall_size = atom_size * render_scale * Vec2{1.0f, 8.0f};
   state.wall = rect(wall_position, wall_size);
 
   // gameplay camera movement stuff
@@ -922,6 +920,17 @@ int main(int argc, char* argv[])
   b8 game_running = 1;
 
   FrameTimer timer = frametimer();
+
+  // @level_editor
+  void* level_memory = calloc(mem_size, sizeof(u32));
+  size_t level_mem_size = GB(1);
+  Arena level_arena;
+  arena_init(&level_arena, (unsigned char*)level_memory, level_mem_size*sizeof(u32));
+
+  Level test_level;
+  test_level.size = IVec2{32, 32};
+  const char *level_name = "test_level";
+  array_init(&level_arena, &(level_arena.map), test_level.size.x * test_level.size.y);
 
   while (game_running) 
   {
@@ -1301,8 +1310,8 @@ int main(int argc, char* argv[])
 
     gl_cq_flush(renderer);
 
-    array_clear(r32, renderer->cq_pos_batch);
-    array_clear(r32, renderer->cq_color_batch);
+    array_clear(&renderer->cq_pos_batch);
+    array_clear(&renderer->cq_color_batch);
     renderer->cq_batch_count = 0;
     
     // render ui text
