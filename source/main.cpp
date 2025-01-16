@@ -7,37 +7,6 @@
 #include <ft2build.h>
 #include FT_FREETYPE_H
 
-/*
-* Project Estimation/Target ~ 1 - 2 months (was so off on this) 
-* well, to be fair, if I account for actual time worked, then I was not 
-* so off on my estimate, I think I am still in the estimation range
-* Tasks:
-* DONE:
-* - gravity - very barebones version done
-* - horizontal motion on ground
-*   - accelerate
-*   - constant speed
-*   - decelerate to give impression of sliding
-* - horizontal motion when falling
-*   - inertia-like movement when accelerating prior to falling
-*   - loss of inertia when player was at high speed before 
-*     sliding off and other small movement when in free fall
-*   - movement and deceleration when not moving in free fall
-* - Jumping
-* - Fixed framerate to prevent weird quirks with movement
-* - Basic camera follower
-* - move from row-major to column major setup for math library
-* TODO:
-* - Efficient Quad Renderer
-* - Some way to make and define levels
-* - Level Creation
-* - Update camera follower for centering player in view (with limits) after
-*   a few seconds (maybe like 2 seconds)
-* - Level completion Object
-* - Implement Broad Phase Collision for efficient collision handling 
-* - Audio
-*/
-
 #include <stdint.h>
 
 typedef uint8_t  u8;
@@ -104,19 +73,20 @@ enum ENTITY_TYPE {
     GOAL = 2
 };
 
-struct Level {
-    /*
-     * Level will be a 2d array with positions defining the elements
-     * the dimensions of the array are: size.width * size.height
-     *
-     * here size is an IVec2 and it's parameters are multiples of atom_size
-     * atom_size is a parameter the game defines as the smallest chunk of pixels
-     * the game will consider
-     */
-    const char *version = "0.0.1";
-    u32_array map;
-    IVec2 size;
+struct Entity {
+    u32 id;
+    ENTITY_TYPE type;
+    Vec2 pos;
+    Vec2 size;
 };
+
+struct Level0x1 {
+    u32 version = 0x1;
+    u32 entity_count;
+    Entity *entities;
+};
+
+typedef struct Level0x1 Level;
 
 struct GLRenderer {
   // colored quad
@@ -730,8 +700,11 @@ Vec3 get_screen_position_from_percent(GameState state, Vec3 v) {
 
 int main(int argc, char* argv[])
 {
+  u32 base_scr_width = 1024;
+  u32 base_scr_height = 768;
+
   u32 scr_width = 1280;
-  u32 scr_height = 720;
+  u32 scr_height = 960;
   
   if (SDL_Init(SDL_INIT_VIDEO) != 0)
   {
@@ -769,7 +742,7 @@ int main(int argc, char* argv[])
   u32 pos_ele_count =  BATCH_SIZE * 4*6;
   u32 color_ele_count = BATCH_SIZE * 3*6;
   // 1GB <= (((1b*1024)kb*1024)mb*1024)mb
-  u32 mem_size = GB(1);
+  size_t mem_size = GB(1);
   void* batch_memory = calloc(mem_size, sizeof(r32));
   Arena batch_arena;
   arena_init(&batch_arena, (unsigned char*)batch_memory, mem_size*sizeof(r32));
@@ -797,7 +770,7 @@ int main(int argc, char* argv[])
   gl_setup_colored_quad_optimized(renderer, cq_batch_sp);
   
   
-  r32 render_scale = 1.0f;
+  r32 render_scale = 1.0f; //(r32)scr_width / (r32)base_scr_width;
   // ==========
   // setup text
   // 1. setup free type library stuff
@@ -853,8 +826,8 @@ int main(int argc, char* argv[])
     add3v(renderer->cam_pos, renderer->cam_look), renderer->preset_up_dir
   );
   renderer->cam_proj = orthographic4m(
-    0.0f, (r32)scr_width*render_scale, 
-    0.0f, (r32)scr_height*render_scale, 
+    0.0f, (r32)scr_width*render_scale,
+    0.0f, (r32)scr_height*render_scale,
     0.1f, 10.0f
   );
 
@@ -876,27 +849,140 @@ int main(int argc, char* argv[])
   // object placement should be in pixels 
   // in order to scale to different resolutions it should be multiplied by
   // scaling factor
-  Vec2 atom_size = Vec2{16.0f, 16.0f} * render_scale;
+  Vec2 atom_size = Vec2{32.0f, 32.0f} * render_scale;
 
   GameState state = {0};
   state.world_size = Vec2{(r32)scr_width, (r32)scr_height};
   state.screen_size = Vec2{(r32)scr_width, (r32)scr_height};
   state.render_scale = vec2(render_scale);
-  Vec3 player_position = Vec3{0.0f, 70.0f, -1.0f};
-  Vec2 player_size = atom_size * render_scale;
+
+  // @section: level elements
+  
+  size_t max_level_entities = 255;
+  size_t arena_mem_size = GB(1);
+  void* level_mem = calloc(arena_mem_size, sizeof(Entity));
+  Arena level_arena;
+  arena_init(&level_arena, (unsigned char*)level_mem, max_level_entities*sizeof(Entity));
+  size_t fsize;
+  char* level_data = (char*)SDL_LoadFile("./levels/level0.txt", &fsize);
+  Level level;
+  u32 feature_flag = 0;
+  u32 entity_flag = 0;
+  u32 entity_id_counter = 0;
+  Entity level_entity;
+
+  // @resume: 
+  // Parsed the level version, entity count
+  // I need to parse the entity elements now
+  char level_prop[255];
+  memset(level_prop, 0, sizeof(char)*255);
+  char* prop_head = &level_prop[0];
+  for (int i = 0; i < fsize; i++) {
+      char ele = level_data[i];
+      switch (feature_flag) {
+	  case 0: {
+	      // version number
+	      if (ele == ' ' || ele == '\n') {
+		  level.version = strtol(level_prop, NULL, 16);
+		  memset(level_prop, 0, sizeof(char)*255);
+		  prop_head = level_prop;
+		  feature_flag++;
+		  continue;
+	      }
+	  } break;
+	  case 1: {
+	      // ele_count
+	      if (ele == ' ' || ele == '\n') {
+		  level.entity_count = strtol(level_prop, NULL, 10);
+		  memset(level_prop, 0, sizeof(char)*255);
+		  prop_head = level_prop;
+		  feature_flag++;
+
+		  // allocate memory for entities
+		  level.entities = (Entity*) arena_alloc(&level_arena, level.entity_count*sizeof(Entity));
+		  continue;
+	      }
+	  } break;
+	  case 2: {
+	     // entities
+	     // entity_flags
+	     // type, posx poy, sizex sizey
+	     level_entity.id = entity_id_counter;
+	     switch (entity_flag) {
+		 case 0: {
+		     // type
+		     if (ele == ' ' || ele == '\n') {
+			 level_entity.type = (ENTITY_TYPE)strtol(level_prop, NULL, 10);
+			 memset(level_prop, 0, sizeof(char)*255);
+			 prop_head = level_prop;
+			 entity_flag++;
+		     }
+		 } break;
+		 case 1: {
+		     // posx
+		     if (ele == ' ' || ele == '\n') {
+			 level_entity.pos.x = strtol(level_prop, NULL, 10);
+			 memset(level_prop, 0, sizeof(char)*255);
+			 prop_head = level_prop;
+			 entity_flag++;
+		     }
+		 } break;
+		 case 2: {
+		     // posy
+		     if (ele == ' ' || ele == '\n') {
+			 level_entity.pos.y = strtol(level_prop, NULL, 10);
+			 memset(level_prop, 0, sizeof(char)*255);
+			 prop_head = level_prop;
+			 entity_flag++;
+		     }
+		 } break;
+		 case 3: {
+		     // sizex
+		     if (ele == ' ' || ele == '\n') {
+			 level_entity.size.x = strtol(level_prop, NULL, 10);
+			 memset(level_prop, 0, sizeof(char)*255);
+			 prop_head = level_prop;
+			 entity_flag++;
+		     }
+		 } break;
+		 case 4: {
+		     // sizey
+		     if (ele == ' ' || ele == '\n') {
+			 level_entity.size.y = strtol(level_prop, NULL, 10);
+			 memset(level_prop, 0, sizeof(char)*255);
+			 prop_head = level_prop;
+			 entity_flag++;
+		     }
+		 } break;
+		 default: {
+		 } break;
+	     }
+	     if (ele == '\n') {
+		 level.entities[entity_id_counter] = level_entity;
+		 entity_flag = 0;
+		 entity_id_counter++;
+		 memset(&level_entity, 0, sizeof(Entity));
+	     }
+	     if (ele == '\n' || ele == ' ') {
+		 if (entity_id_counter == level.entity_count) {
+		     // force level loading loop to break
+		     i = fsize;
+		 }
+		 continue;
+	     }
+	  } break;
+	  default: {
+	  } break;
+      }
+      *prop_head = ele;   
+      prop_head++;
+  }
+
+  Vec3 player_position = Vec3{0.0f, 0.0f, -1.0f};
+  Vec2 player_size = atom_size;
   state.player = rect(player_position, player_size);
 
-
   r32 obstacle_z = -2.0f;
-  Vec3 floor_position = Vec3{640.0f*render_scale, 400.0f*render_scale, obstacle_z};
-  Vec2 floor_size = atom_size * Vec2{5.0f, 1.0f};
-  state.floor = rect(floor_position, floor_size);
-
-  Vec3 wall_position = get_world_position_from_percent(
-    state, Vec3{20.0f, 10.0f, obstacle_z}
-  );
-  Vec2 wall_size = atom_size * render_scale * Vec2{1.0f, 8.0f};
-  state.wall = rect(wall_position, wall_size);
 
   // gameplay camera movement stuff
   Vec2 cam_lt_limit = {0};
@@ -920,17 +1006,6 @@ int main(int argc, char* argv[])
   b8 game_running = 1;
 
   FrameTimer timer = frametimer();
-
-  // @level_editor
-  void* level_memory = calloc(mem_size, sizeof(u32));
-  size_t level_mem_size = GB(1);
-  Arena level_arena;
-  arena_init(&level_arena, (unsigned char*)level_memory, level_mem_size*sizeof(u32));
-
-  Level test_level;
-  test_level.size = IVec2{32, 32};
-  const char *level_name = "test_level";
-  array_init(&level_arena, &(level_arena.map), test_level.size.x * test_level.size.y);
 
   while (game_running) 
   {

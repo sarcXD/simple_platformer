@@ -30,3 +30,16 @@ TODO:
 - make movement grid based
 - Implement Broad Phase Collision for efficient collision handling
 - vectorize math library with simd
+
+IDEAS:
+*Levels*
+Plain text file
+```
+version_hex
+entity_count
+entity_id posx poxy sizex sizey
+entity_id posx poxy sizex sizey
+entity_id posx poxy sizex sizey
+... repeats entity_count - 3 times
+(3 because we already declared 3 elements in this spec)
+```
