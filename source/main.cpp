@@ -27,6 +27,39 @@ typedef u8       b8;
 #include "memory/arena.h"
 #include "math.h"
 
+#define OPPOSITE_SIGNS(x,y) (((x) > 0 && (y) < 0) || ((x) < 0 && (y) > 0))
+
+struct Str256 {
+    char buffer[256];
+    u32 size;
+};
+
+void str_init(Str256 *str) {
+    memset(str->buffer, 0, 256*sizeof(unsigned char));
+    str->size = 0;
+}
+
+Str256 str256(const char *cstr) {
+    Str256 str;
+    str_init(&str);
+    memcpy((void*)str.buffer, (void*)cstr, strlen(cstr));
+
+    return str;
+}
+
+void str_pushe(Str256 *str, char c) {
+    if (str->size + 1 >= 256) {
+	return;
+    }
+    str->buffer[str->size] = c;
+    str->size++;
+}
+
+void str_clear(Str256 *str) {
+    memset(str->buffer, 0, str->size * sizeof(unsigned char));
+    str->size = 0;
+}
+
 enum PMoveState {
   NO_MOVE       = 0,
   MOVE          = 1,
@@ -67,6 +100,21 @@ struct TextState {
 
 #include "array/array.cpp"
 
+struct Rect {
+  Vec2 tl;
+  Vec2 br;
+  Vec2 size;
+  Vec3 position;
+};
+
+#define PLAYER_COLORS Vec3{0.45f, 0.8f, 0.2f}
+#define OBSTACLE_COLROS Vec3{0.0f, 0.0f, 0.0f}
+#define GOAL_COLORS Vec3{1.0f, 0.0f, 0.0f}
+
+#define PLAYER_Z -1.0f
+#define OBSTACLE_Z -2.0f
+#define GOAL_Z -3.0f
+
 enum ENTITY_TYPE {
     PLAYER = 0,
     OBSTACLE = 1,
@@ -74,10 +122,27 @@ enum ENTITY_TYPE {
 };
 
 struct Entity {
+    // @todo: set a base resolution and design the game elements around it
     u32 id;
     ENTITY_TYPE type;
-    Vec2 pos;
+    // raw property values in pixels
+    Vec3 raw_position;
+    Vec2 raw_size;
+    // these properties will have scaling applied
+    Vec3 position;
     Vec2 size;
+    Rect bounds;
+};
+
+struct EntityInfo {
+    u32 id;
+    u32 index; // index into Level->Entities array
+};
+
+struct EntityInfoArr {
+    EntityInfo *buffer;
+    u32 size;
+    u32 capacity;
 };
 
 struct Level0x1 {
@@ -121,13 +186,6 @@ struct Controller {
   b8 move_right;
   b8 jump;
   b8 toggle_gravity;
-};
-
-struct Rect {
-  Vec2 tl;
-  Vec2 br;
-  Vec2 size;
-  Vec3 position;
 };
 
 struct FrameTimer {
@@ -176,11 +234,157 @@ struct GameState {
   Vec2 screen_size;
   // the scaling factor to increase/decrease size of game assets
   Vec2 render_scale;
-  // player
-  Rect player;
-  Rect floor;
-  Rect wall;
+  // the smallest size a unit can be. This scales with render_scale
+  Vec2 atom_size;
+
+  // level
+  Str256 level_name;
+  Level game_level;
+  Entity player;
+  EntityInfo goal;
+  EntityInfoArr obstacles;
 };
+
+Rect rect(Vec3 position, Vec2 size) {
+  Rect r = {0};
+
+  r.tl.x = position.x - size.x;
+  r.tl.y = position.y + size.y;
+
+  r.br.x = position.x + size.x;
+  r.br.y = position.y - size.y;
+
+  return r;
+}
+
+void level_load(GameState *state, Arena *level_arena, Str256 level_path) {
+    arena_clear(level_arena);
+
+    size_t fsize;
+    char* level_data = (char*)SDL_LoadFile(level_path.buffer, &fsize);
+
+    u32 feature_flag = 0;
+    u32 entity_flag = 0;
+    u32 entity_id_counter = 0;
+    Str256 level_property;
+    str_init(&level_property);
+
+    Entity level_entity;
+    u32 prop_flag = 0;
+    u32 sub_prop_flag = 0;
+    entity_id_counter = 0;
+
+    for (int i = 0; i < fsize; i++) {
+	char ele = level_data[i];
+	if (ele == ' ' || ele == '\n') {
+	    switch (prop_flag) {
+		case 0: {
+		    state->game_level.version = strtol(level_property.buffer, NULL, 16);
+		    str_clear(&level_property);
+		    prop_flag++;
+		    continue;
+		} break;
+		case 1: {
+	      	    state->game_level.entity_count = strtol(level_property.buffer, NULL, 16);
+	      	    str_clear(&level_property);
+	      	    prop_flag++;
+
+	      	    // allocate memory for entity_count entries
+	      	    state->game_level.entities = (Entity*)arena_alloc(level_arena, state->game_level.entity_count*sizeof(Entity));
+	      	    continue;
+	      	} break;
+		case 2: {
+		    level_entity.id = entity_id_counter;
+		    switch (sub_prop_flag) {
+			case 0: {
+			    // type
+			    level_entity.type = (ENTITY_TYPE)strtol(level_property.buffer, NULL, 10);
+
+	  	            // set z index based off of entity type
+	  	            if (level_entity.type == PLAYER) {
+				level_entity.raw_position.z = PLAYER_Z;
+	  	            } else if (level_entity.type == OBSTACLE) {
+				level_entity.raw_position.z = OBSTACLE_Z;
+	  	            } else if (level_entity.type == GOAL) {
+				level_entity.raw_position.z = GOAL_Z;
+	  	            }
+	  	        } 
+	  	        case 1: {
+	  	            // posx
+	  	            level_entity.raw_position.x = strtol(level_property.buffer, NULL, 10);
+	  	        }
+	  	        case 2: {
+	  	            // posy
+	  	            level_entity.raw_position.y = strtol(level_property.buffer, NULL, 10);
+	  	        }
+	  	        case 3: {
+	  	            // sizex
+	  	            level_entity.raw_size.x = strtol(level_property.buffer, NULL, 10);
+	  	        }
+	  	        case 4: {
+	  	            // sizey
+	  	            level_entity.raw_size.y = strtol(level_property.buffer, NULL, 10);
+	  	        }
+	  	        default: {
+	  	        } break;
+	  	    }
+	  	    str_clear(&level_property);
+	  	    sub_prop_flag++;
+
+	  	    if (ele == '\n') {
+			state->game_level.entities[entity_id_counter] = level_entity;
+	  	        entity_id_counter++;
+	  	        sub_prop_flag = 0;
+	  	        memset(&level_entity, 0, sizeof(Entity));
+	  	    }
+	  	    if (entity_id_counter >= state->game_level.entity_count) {
+	  	        // force level loading loop to break
+	  	        i = fsize;
+	  	    }
+	  	    continue;
+	  	}
+		default: {
+		} break;
+	    }
+	}
+	str_pushe(&level_property, ele);
+    }
+
+    // @function: load_entities_info and scale
+    state->obstacles.buffer = (EntityInfo*)arena_alloc(level_arena, state->game_level.entity_count*sizeof(EntityInfo));
+    state->obstacles.size = 0;
+    state->obstacles.capacity = state->game_level.entity_count;
+    for (u32 i = 0; i < state->game_level.entity_count; i++) {
+	Entity e = state->game_level.entities[i];
+	switch (e.type) {
+	    case PLAYER: {
+		e.position = e.raw_position;
+		e.size = e.raw_size * state->atom_size * state->render_scale.x;
+		e.bounds = rect(e.position, e.size);
+
+		state->player = e;
+	    } break;
+	    case OBSTACLE: {
+		e.position = e.raw_position;
+		e.size = e.raw_size * state->atom_size * state->render_scale.x;
+		e.bounds = rect(e.position, e.size);
+
+		EntityInfo o;
+		o.id = e.id;
+		o.index = i;
+		state->obstacles.buffer[state->obstacles.size] = o;
+		state->obstacles.size++;
+	    }
+	    case GOAL: {
+	    } break;
+	    default: {
+	    } break;
+	}
+	state->game_level.entities[i] = e;
+    }
+
+    SDL_free(level_data);
+}
 
 u32 gl_shader_program(char* vs, char* fs)
 {
@@ -258,6 +462,9 @@ u32 gl_shader_program_from_path(const char* vspath, const char* fspath)
   }
   
   u32 shader_program = gl_shader_program(vs, fs);
+
+  SDL_free(vs);
+  SDL_free(fs);
   return shader_program;
 }
 
@@ -630,21 +837,6 @@ void gl_render_text(GLRenderer *renderer, char* text, Vec2 position, r32 size, V
   }
 }
 
-Rect rect(Vec3 position, Vec2 size) {
-  Rect r = {0};
-  r.position = position;
-  r.size = size;
-
-  r.tl.x = position.x - size.x;
-  r.tl.y = position.y + size.y;
-
-  Vec2 br;
-  r.br.x = position.x + size.x;
-  r.br.y = position.y - size.y;
-
-  return r;
-}
-
 Vec2 get_move_dir(Controller c) {
   Vec2 dir = {};
   if (c.move_up) {
@@ -737,7 +929,8 @@ int main(int argc, char* argv[])
   // vsync controls: 0 = OFF | 1 = ON (Default)
   SDL_GL_SetSwapInterval(0);
   
-  GLRenderer *renderer = new GLRenderer();
+  GLRenderer renderer;
+  memset(&renderer, 0, sizeof(GLRenderer));
 
   u32 pos_ele_count =  BATCH_SIZE * 4*6;
   u32 color_ele_count = BATCH_SIZE * 3*6;
@@ -746,8 +939,8 @@ int main(int argc, char* argv[])
   void* batch_memory = calloc(mem_size, sizeof(r32));
   Arena batch_arena;
   arena_init(&batch_arena, (unsigned char*)batch_memory, mem_size*sizeof(r32));
-  array_init(&batch_arena, &(renderer->cq_pos_batch), pos_ele_count);
-  array_init(&batch_arena, &(renderer->cq_color_batch), color_ele_count);
+  array_init(&batch_arena, &(renderer.cq_pos_batch), pos_ele_count);
+  array_init(&batch_arena, &(renderer.cq_color_batch), color_ele_count);
 
 
   u32 quad_sp = gl_shader_program_from_path(
@@ -763,11 +956,11 @@ int main(int argc, char* argv[])
     "./source/shaders/cq_batched.fs.glsl"
   );
   u32 quad_vao = gl_setup_colored_quad(quad_sp);
-  renderer->cq_sp = quad_sp;
-  renderer->cq_vao = quad_vao;
+  renderer.cq_sp = quad_sp;
+  renderer.cq_vao = quad_vao;
 
-  renderer->cq_batch_sp = cq_batch_sp;
-  gl_setup_colored_quad_optimized(renderer, cq_batch_sp);
+  renderer.cq_batch_sp = cq_batch_sp;
+  gl_setup_colored_quad_optimized(&renderer, cq_batch_sp);
   
   
   r32 render_scale = 1.0f; //(r32)scr_width / (r32)base_scr_width;
@@ -799,33 +992,33 @@ int main(int argc, char* argv[])
   }
   // 2. setup gl text
   // @note: we only support 128 characters, which is the basic ascii set
-  renderer->ui_text.chunk_size = 32;
-  renderer->ui_text.pixel_size = 32*render_scale;
-  renderer->ui_text.sp = ui_text_sp;
-  renderer->ui_text.transforms = (Mat4*)malloc(
-    renderer->ui_text.chunk_size*sizeof(Mat4)
+  renderer.ui_text.chunk_size = 32;
+  renderer.ui_text.pixel_size = 32*render_scale;
+  renderer.ui_text.sp = ui_text_sp;
+  renderer.ui_text.transforms = (Mat4*)malloc(
+    renderer.ui_text.chunk_size*sizeof(Mat4)
   );
-  renderer->ui_text.char_indexes = (s32*)malloc(
-    renderer->ui_text.chunk_size*sizeof(s32)
+  renderer.ui_text.char_indexes = (s32*)malloc(
+    renderer.ui_text.chunk_size*sizeof(s32)
   );
-  renderer->ui_text.char_map = (TextChar*)malloc(
+  renderer.ui_text.char_map = (TextChar*)malloc(
     128*sizeof(TextChar)
   );
-  gl_setup_text(&(renderer->ui_text), roboto_font_face);
+  gl_setup_text(&(renderer.ui_text), roboto_font_face);
   
   
   // ============
   // setup camera
   Vec3 preset_up_dir = Vec3{0.0f, 1.0f, 0.0f};
-  renderer->preset_up_dir = preset_up_dir;
-  renderer->cam_update = false;
-  renderer->cam_pos = Vec3{0.0f, 0.0f, 1.0f};
-  renderer->cam_look = camera_look_around(TO_RAD(0.0f), -TO_RAD(90.0f));
-  renderer->cam_view = camera_create4m(
-    renderer->cam_pos, 
-    add3v(renderer->cam_pos, renderer->cam_look), renderer->preset_up_dir
+  renderer.preset_up_dir = preset_up_dir;
+  renderer.cam_update = false;
+  renderer.cam_pos = Vec3{0.0f, 0.0f, 1.0f};
+  renderer.cam_look = camera_look_around(TO_RAD(0.0f), -TO_RAD(90.0f));
+  renderer.cam_view = camera_create4m(
+    renderer.cam_pos, 
+    add3v(renderer.cam_pos, renderer.cam_look), renderer.preset_up_dir
   );
-  renderer->cam_proj = orthographic4m(
+  renderer.cam_proj = orthographic4m(
     0.0f, (r32)scr_width*render_scale,
     0.0f, (r32)scr_height*render_scale,
     0.1f, 10.0f
@@ -834,7 +1027,7 @@ int main(int argc, char* argv[])
   // @section: gameplay variables
   r32 motion_scale = 2.0f;
   r32 fall_accelx = 3.0f*motion_scale;
-  r32 move_accelx = 6.0f*motion_scale;
+  r32 move_accelx = 4.0f*motion_scale;
   r32 freefall_accel = -11.8f*motion_scale;
   r32 jump_force = 6.5f*motion_scale;
   r32 effective_force = 0.0f;
@@ -849,140 +1042,27 @@ int main(int argc, char* argv[])
   // object placement should be in pixels 
   // in order to scale to different resolutions it should be multiplied by
   // scaling factor
-  Vec2 atom_size = Vec2{32.0f, 32.0f} * render_scale;
+  Vec2 atom_size = Vec2{32.0f, 32.0f};
 
   GameState state = {0};
+  state.atom_size = atom_size;
   state.world_size = Vec2{(r32)scr_width, (r32)scr_height};
   state.screen_size = Vec2{(r32)scr_width, (r32)scr_height};
   state.render_scale = vec2(render_scale);
 
   // @section: level elements
   
+  // @step: init_level_arena
   size_t max_level_entities = 255;
   size_t arena_mem_size = GB(1);
-  void* level_mem = calloc(arena_mem_size, sizeof(Entity));
+  void* level_mem = malloc(arena_mem_size);
   Arena level_arena;
-  arena_init(&level_arena, (unsigned char*)level_mem, max_level_entities*sizeof(Entity));
-  size_t fsize;
-  char* level_data = (char*)SDL_LoadFile("./levels/level0.txt", &fsize);
-  Level level;
-  u32 feature_flag = 0;
-  u32 entity_flag = 0;
-  u32 entity_id_counter = 0;
-  Entity level_entity;
+  size_t arena_size = max_level_entities*(sizeof(Entity) + sizeof(EntityInfo));
+  arena_init(&level_arena, (unsigned char*)level_mem, arena_size);
 
-  // @resume: 
-  // Parsed the level version, entity count
-  // I need to parse the entity elements now
-  char level_prop[255];
-  memset(level_prop, 0, sizeof(char)*255);
-  char* prop_head = &level_prop[0];
-  for (int i = 0; i < fsize; i++) {
-      char ele = level_data[i];
-      switch (feature_flag) {
-	  case 0: {
-	      // version number
-	      if (ele == ' ' || ele == '\n') {
-		  level.version = strtol(level_prop, NULL, 16);
-		  memset(level_prop, 0, sizeof(char)*255);
-		  prop_head = level_prop;
-		  feature_flag++;
-		  continue;
-	      }
-	  } break;
-	  case 1: {
-	      // ele_count
-	      if (ele == ' ' || ele == '\n') {
-		  level.entity_count = strtol(level_prop, NULL, 10);
-		  memset(level_prop, 0, sizeof(char)*255);
-		  prop_head = level_prop;
-		  feature_flag++;
+  Str256 level_path = str256("./levels/level0.txt");
 
-		  // allocate memory for entities
-		  level.entities = (Entity*) arena_alloc(&level_arena, level.entity_count*sizeof(Entity));
-		  continue;
-	      }
-	  } break;
-	  case 2: {
-	     // entities
-	     // entity_flags
-	     // type, posx poy, sizex sizey
-	     level_entity.id = entity_id_counter;
-	     switch (entity_flag) {
-		 case 0: {
-		     // type
-		     if (ele == ' ' || ele == '\n') {
-			 level_entity.type = (ENTITY_TYPE)strtol(level_prop, NULL, 10);
-			 memset(level_prop, 0, sizeof(char)*255);
-			 prop_head = level_prop;
-			 entity_flag++;
-		     }
-		 } break;
-		 case 1: {
-		     // posx
-		     if (ele == ' ' || ele == '\n') {
-			 level_entity.pos.x = strtol(level_prop, NULL, 10);
-			 memset(level_prop, 0, sizeof(char)*255);
-			 prop_head = level_prop;
-			 entity_flag++;
-		     }
-		 } break;
-		 case 2: {
-		     // posy
-		     if (ele == ' ' || ele == '\n') {
-			 level_entity.pos.y = strtol(level_prop, NULL, 10);
-			 memset(level_prop, 0, sizeof(char)*255);
-			 prop_head = level_prop;
-			 entity_flag++;
-		     }
-		 } break;
-		 case 3: {
-		     // sizex
-		     if (ele == ' ' || ele == '\n') {
-			 level_entity.size.x = strtol(level_prop, NULL, 10);
-			 memset(level_prop, 0, sizeof(char)*255);
-			 prop_head = level_prop;
-			 entity_flag++;
-		     }
-		 } break;
-		 case 4: {
-		     // sizey
-		     if (ele == ' ' || ele == '\n') {
-			 level_entity.size.y = strtol(level_prop, NULL, 10);
-			 memset(level_prop, 0, sizeof(char)*255);
-			 prop_head = level_prop;
-			 entity_flag++;
-		     }
-		 } break;
-		 default: {
-		 } break;
-	     }
-	     if (ele == '\n') {
-		 level.entities[entity_id_counter] = level_entity;
-		 entity_flag = 0;
-		 entity_id_counter++;
-		 memset(&level_entity, 0, sizeof(Entity));
-	     }
-	     if (ele == '\n' || ele == ' ') {
-		 if (entity_id_counter == level.entity_count) {
-		     // force level loading loop to break
-		     i = fsize;
-		 }
-		 continue;
-	     }
-	  } break;
-	  default: {
-	  } break;
-      }
-      *prop_head = ele;   
-      prop_head++;
-  }
-
-  Vec3 player_position = Vec3{0.0f, 0.0f, -1.0f};
-  Vec2 player_size = atom_size;
-  state.player = rect(player_position, player_size);
-
-  r32 obstacle_z = -2.0f;
+  level_load(&state, &level_arena, level_path);
 
   // gameplay camera movement stuff
   Vec2 cam_lt_limit = {0};
@@ -1052,6 +1132,40 @@ int main(int argc, char* argv[])
             {
               controller.toggle_gravity = 1;
             }
+	    // @todo: fix this janky manual camera movement 
+	    if (ev.key.keysym.sym == SDLK_F5)
+	    {
+		level_load(&state, &level_arena, level_path);
+		renderer.cam_update = true;
+	    }
+	    if (ev.key.keysym.sym == SDLK_LEFT)
+	    {
+		renderer.cam_pos.x -= 20.0f * state.render_scale.x;
+		renderer.cam_update = true;
+	    }
+	    if (ev.key.keysym.sym == SDLK_RIGHT)
+	    {
+		renderer.cam_pos.x += 20.0f * state.render_scale.x;
+		renderer.cam_update = true;
+	    }
+	    if (ev.key.keysym.sym == SDLK_UP)
+	    {
+		renderer.cam_pos.y += 20.0f * state.render_scale.x;
+		renderer.cam_update = true;
+	    }
+	    if (ev.key.keysym.sym == SDLK_DOWN)
+	    {
+		renderer.cam_pos.y -= 20.0f * state.render_scale.x;
+		renderer.cam_update = true;
+	    }
+	    if (renderer.cam_update) {
+		renderer.cam_view = camera_create4m(
+	    	  renderer.cam_pos, 
+	    	  add3v(renderer.cam_pos, renderer.cam_look), 
+	    	  renderer.preset_up_dir
+	    	);
+	    	renderer.cam_update = false;
+	    }
           } break;
         case (SDL_KEYUP):
           {
@@ -1135,66 +1249,85 @@ int main(int argc, char* argv[])
     }
     if (is_gravity)
     {
+	// @section: game_movement
+	//
+	// @todo: fix this, this sucks
+	// here is what sucks
+	// - when I jump on a platform, I keep skeedaddling on and fall off, WHY?
+	// - When I jump off of a platform, even sliding with low force, there 
+	// is a high force applied needlessly
+	// - I do not like the extra motion we get when in the air, that sucks
+	// when I hit a wall and press the arrow key I keep applying motion, that sucks
+	// as it also means that I am accelerating, WHILST BEING STATIONARY!! I need to fix that.
+	// A problem I face because of that is that when I press the right key, the game thinks that I
+	// was in motion, so even when I am applying the right arrow key to move, it will take time until the
+	// "sliding" movement slows down, and it usually takes 5 seconds to do that.
+
       // calculate force acting on player
       if (collidey) {
         // @note: can I reduce the states here like I did in the falling case
         // without separate checks
-        if (is_key_down_x) {
-          r32 updated_force = (
-            effective_force + p_move_dir.x*move_accelx*timer.tDelta
-          );
-          updated_force = clampf(
-            updated_force, -move_accelx, move_accelx
-          );
-          effective_force = updated_force;
-        } else {
-          r32 friction = 0.0f;
-          if (effective_force > 0.0f) {
-            friction = -move_accelx*timer.tDelta;
-          } else if (effective_force < 0.0f) {
-            friction = move_accelx*timer.tDelta;
-          }
-          r32 updated_force = effective_force + friction;
-          effective_force = (
-            ABS(updated_force) < 0.5f ? 
-            0.0f : updated_force
-          );
-        }
+	  if (collidex) {
+	      effective_force = 0.0f;
+	  } else if (is_key_down_x) {
+	      r32 updated_force = (
+		      effective_force + p_move_dir.x*move_accelx*timer.tDelta
+		      );
+	      updated_force = clampf(
+		      updated_force, -move_accelx, move_accelx
+		      );
+	      effective_force = updated_force;
+	  } else {
+	      r32 friction = 0.0f;
+	      if (effective_force > 0.0f) {
+		friction = -move_accelx*timer.tDelta;
+	      } else if (effective_force < 0.0f) {
+		friction = move_accelx*timer.tDelta;
+	      }
+	      r32 updated_force = effective_force + friction;
+	      effective_force = (
+		ABS(updated_force) < 0.5f ? 
+		0.0f : updated_force
+	      );
+	  }
       } else {
         r32 smoothing_force = effective_force;
         r32 net_force = 0.0f;
         r32 active_force = 0.0f;
         if (!collidex) { 
-          net_force += effective_force;
-          {
-            // @note: air resistance 
-            // (arbitrary force in opposite direction to reduce speed)
-            // reason: seems that it would work well for the case where
-            // player moves from platform move to free_fall
-            // since the max speed in respective stages is different this can
-            // function as a speed smoother, without too many checks and 
-            // explicit checking
-            b8 is_force_pos = effective_force > 0.0f;
-            b8 is_force_neg = effective_force < 0.0f;
-            r32 friction = 0.0f;
-            if (is_force_pos) {
-              friction = -fall_accelx*timer.tDelta;
-            } else if (is_force_neg) {
-              friction = fall_accelx*timer.tDelta;
-            }
-            net_force += friction;
-          } 
-
-          {
-            // @note: player movement force
-            active_force = p_move_dir.x*fall_accelx;
-            r32 interm_total_force = net_force + active_force;
-            if (ABS(interm_total_force) > fall_accelx) {
-              r32 deficit = MIN(fall_accelx - ABS(net_force), 0.0f);
-              active_force = p_move_dir.x*deficit;
-            }
-            net_force += active_force;
-          }
+          net_force = effective_force;
+	  if (controller.jump) {
+	      b8 opposite_signs = OPPOSITE_SIGNS(net_force, p_move_dir.x);
+	      if (opposite_signs) {
+		  active_force = p_move_dir.x*fall_accelx/2.0f;
+		  net_force = active_force;
+	      }
+	  } else {
+	      if (ABS(net_force) >= fall_accelx) {
+		// @note: air resistance 
+		// (arbitrary force in opposite direction to reduce speed)
+		// reason: seems that it would work well for the case where
+		// player moves from platform move to free_fall
+		// since the max speed in respective stages is different this can
+		// function as a speed smoother, without too many checks and 
+		// explicit checking
+		b8 is_force_pos = effective_force > 0.0f;
+		b8 is_force_neg = effective_force < 0.0f;
+		r32 friction = 0.0f;
+		if (is_force_pos) {
+		  friction = -fall_accelx*timer.tDelta;
+		} else if (is_force_neg) {
+		  friction = fall_accelx*timer.tDelta;
+		}
+		net_force += friction;
+	      } 
+	      // player is slowing down, in that case, we allow that.
+	      b8 opposite_signs = OPPOSITE_SIGNS(net_force, p_move_dir.x);
+	      if (opposite_signs) {
+		  active_force = p_move_dir.x*fall_accelx*timer.tDelta;
+		  net_force += active_force;
+	      }
+	  }
         }
         effective_force = net_force;
       }
@@ -1222,6 +1355,10 @@ int main(int argc, char* argv[])
         dy1 = dy1 + freefall_accel*timer.tDelta;
         if (controller.jump) {
           dy1 = jump_force;
+	  if (!collidey) {
+	      // if we are in the air, the jump force is 75% of normal
+	      dy1 = jump_force * 0.75f;
+	  }
         }
         if (dy1 < 0.0f) {
           p_motion_dir.y = -1.0f;
@@ -1257,12 +1394,15 @@ int main(int argc, char* argv[])
 
     Rect player_next = rect(next_player_position, state.player.size);
     
-    Rect collision_targets[2] = {state.wall, state.floor};
+    Rect collision_targets[2] = {};
     b8 is_collide_x = 0;
     b8 is_collide_y = 0;
 
-    for (u32 i = 0; i < 2; i++) {
-      Rect target = collision_targets[i];
+    for (u32 i = 0; i < state.obstacles.size; i++) {
+      u32 index = state.obstacles.buffer[i].index;
+      Entity e = state.game_level.entities[index];
+      Rect target = e.bounds;
+
       
       // @func: check_if_player_colliding_with_target
 
@@ -1272,10 +1412,10 @@ int main(int argc, char* argv[])
       b8 t_collide_bottom = 0;
       b8 t_collide_top = 0;
 
-      r32 prev_top    = state.player.tl.y;
-      r32 prev_left   = state.player.tl.x;
-      r32 prev_bottom = state.player.br.y;
-      r32 prev_right  = state.player.br.x;
+      r32 prev_top    = state.player.bounds.tl.y;
+      r32 prev_left   = state.player.bounds.tl.x;
+      r32 prev_bottom = state.player.bounds.br.y;
+      r32 prev_right  = state.player.bounds.br.x;
 
       r32 p_top     = player_next.tl.y;
       r32 p_left    = player_next.tl.x;
@@ -1317,49 +1457,49 @@ int main(int argc, char* argv[])
 
     if (!is_collide_x) {
       if (p_motion_dir.x != 0.0f) {
-        renderer->cam_update = true;
+        renderer.cam_update = true;
       }
       state.player.position.x = next_player_position.x;
     }
     if (!is_collide_y) {
       if (p_motion_dir.y != 0.0f) {
-        renderer->cam_update = true;
+        renderer.cam_update = true;
       }
       state.player.position.y = next_player_position.y;
     }
 
-    state.player = rect(state.player.position, state.player.size);
+    state.player.bounds = rect(state.player.position, state.player.size);
     collidex = is_collide_x;
     collidey = is_collide_y;
 
     // @func: update_camera
-    if (renderer->cam_update == true) {
-      renderer->cam_update = false;
-      Vec2 player_screen = state.player.position.v2() - renderer->cam_pos.v2();
+    if (renderer.cam_update == true) {
+      renderer.cam_update = false;
+      Vec2 player_screen = state.player.position.v2() - renderer.cam_pos.v2();
 
       if (player_screen.x <= cam_lt_limit.x && p_motion_dir.x == -1) {
-        renderer->cam_pos.x += pd_1.x;
-        renderer->cam_update = true;
+        renderer.cam_pos.x += pd_1.x;
+        renderer.cam_update = true;
       }
       if (player_screen.y >= cam_lt_limit.y && p_motion_dir.y == 1) {
-        renderer->cam_pos.y += pd_1.y;
-        renderer->cam_update = true;
+        renderer.cam_pos.y += pd_1.y;
+        renderer.cam_update = true;
       }
       if (player_screen.x >= cam_rb_limit.x && p_motion_dir.x == 1) {
-        renderer->cam_pos.x += pd_1.x;
-        renderer->cam_update = true;
+        renderer.cam_pos.x += pd_1.x;
+        renderer.cam_update = true;
       }
       if (player_screen.y <= cam_rb_limit.y && p_motion_dir.y == -1) {
-        renderer->cam_pos.y += pd_1.y;
-        renderer->cam_update = true;
+        renderer.cam_pos.y += pd_1.y;
+        renderer.cam_update = true;
       }
-      if (renderer->cam_update == true) {
-        renderer->cam_view = camera_create4m(
-          renderer->cam_pos, 
-          add3v(renderer->cam_pos, renderer->cam_look), 
-          renderer->preset_up_dir
+      if (renderer.cam_update == true) {
+        renderer.cam_view = camera_create4m(
+          renderer.cam_pos, 
+          add3v(renderer.cam_pos, renderer.cam_look), 
+          renderer.preset_up_dir
         );
-        renderer->cam_update = false;
+        renderer.cam_update = false;
       }
     }
     
@@ -1367,33 +1507,37 @@ int main(int argc, char* argv[])
     glClearColor(0.8f, 0.5f, 0.7f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     
-    // player
-    gl_draw_colored_quad_optimized(renderer, 
-                         state.player.position,            // position
-                         state.player.size,         // size
-                         Vec3{0.45f, 0.8f, 0.2f});
-    // floor
-    gl_draw_colored_quad_optimized(renderer,
-                         state.floor.position,
-                         state.floor.size,
-                         Vec3{1.0f, 1.0f, 1.0f});
-    // wall
-    gl_draw_colored_quad_optimized(renderer, 
-                         state.wall.position,
-                         state.wall.size,
-                         Vec3{1.0f, 0.0f, 0.0f});
+    // @section: rendering
+    // render_player
+    gl_draw_colored_quad_optimized(
+	    &renderer,
+	    state.player.position,
+	    state.player.size,
+	    Vec3{1.0f, 0.0f, 0.0f});
+    
+    // render_obstacles
+    for (int i = 0; i < state.game_level.entity_count; i++) {
+	Entity entity = state.game_level.entities[i];
+	gl_draw_colored_quad_optimized(
+		&renderer,
+		Vec3{entity.position.x, entity.position.y, -2.0f},
+		entity.size,
+		Vec3{1.0f, 1.0f, 1.0f}
+	);
+    }
 
-    gl_cq_flush(renderer);
+    // render_goal
+    gl_cq_flush(&renderer);
 
-    array_clear(&renderer->cq_pos_batch);
-    array_clear(&renderer->cq_color_batch);
-    renderer->cq_batch_count = 0;
+    array_clear(&renderer.cq_pos_batch);
+    array_clear(&renderer.cq_color_batch);
+    renderer.cq_batch_count = 0;
     
     // render ui text
     
     if (is_collide_x || is_collide_y)
     {
-      gl_render_text(renderer,
+      gl_render_text(&renderer,
                      "is colliding",
                      Vec2{500.0f, 700.0f},      // position
                      28.0f,                     // size
@@ -1401,7 +1545,7 @@ int main(int argc, char* argv[])
       
       char movedir_output[50];
       sprintf(movedir_output, "move_dir = %f", p_move_dir.x);
-      gl_render_text(renderer,
+      gl_render_text(&renderer,
                      movedir_output,
                      Vec2{500.0f, 60.0f},      // position
                      28.0f,                     // size
@@ -1409,18 +1553,17 @@ int main(int argc, char* argv[])
 
       char speed_output[50];
       sprintf(speed_output, "%f pps", player_velocity.x);
-      gl_render_text(renderer,
+      gl_render_text(&renderer,
                      speed_output,
                      Vec2{500.0f, 100.0f},      // position
                      28.0f,                     // size
                      Vec3{0.0f, 0.0f, 0.0f});   // color
-      
     }
     
     char fmt_buffer[50];
 
     sprintf(fmt_buffer, "frametime: %f", timer.tDelta);
-    gl_render_text(renderer,
+    gl_render_text(&renderer,
                    fmt_buffer,
                    Vec2{900.0f, 90.0f},      // position
                    28.0f*render_scale,                     // size
@@ -1430,10 +1573,11 @@ int main(int argc, char* argv[])
 
   }
   
-  arena_clear(&batch_arena);
-  free(renderer->ui_text.transforms);
-  free(renderer->ui_text.char_indexes);
-  free(renderer->ui_text.char_map);
+  free(level_mem);
+  free(batch_memory);
+  free(renderer.ui_text.transforms);
+  free(renderer.ui_text.char_indexes);
+  free(renderer.ui_text.char_map);
   SDL_GL_DeleteContext(context);
   SDL_DestroyWindow(window);
   SDL_Quit();

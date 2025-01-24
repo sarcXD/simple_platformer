@@ -19,16 +19,17 @@ DONE:
 - Basic camera follower
 - move from row-major to column major setup for math library
 - Efficient Quad Renderer
+- Some way to make and define levels
+- Level Creation
+- improved player movement
 
 TODO:
-- Some way to make and define levels, maybe just make this grid based?
-- Level Creation
 - Update camera follower for centering player in view (with limits) after
   a few seconds (maybe like 2 seconds)
 - Level completion Object
 - Audio
-- make movement grid based
-- Implement Broad Phase Collision for efficient collision handling
+- make movement grid based? let's see but probably not
+- Implement Broad Phase Collision for efficient collision handling, let's see
 - vectorize math library with simd
 
 IDEAS:
@@ -37,9 +38,9 @@ Plain text file
 ```
 version_hex
 entity_count
-entity_id posx poxy sizex sizey
-entity_id posx poxy sizex sizey
-entity_id posx poxy sizex sizey
+entity_type posx poxy sizex sizey
+entity_type posx poxy sizex sizey
+entity_type posx poxy sizex sizey
 ... repeats entity_count - 3 times
 (3 because we already declared 3 elements in this spec)
 ```
