@@ -1263,18 +1263,6 @@ int main(int argc, char* argv[])
     if (is_gravity)
     {
 	// @section: game_movement
-	//
-	// @todo: fix this, this sucks
-	// here is what sucks
-	// - when I jump on a platform, I keep skeedaddling on and fall off, WHY?
-	// - When I jump off of a platform, even sliding with low force, there 
-	// is a high force applied needlessly
-	// - I do not like the extra motion we get when in the air, that sucks
-	// when I hit a wall and press the arrow key I keep applying motion, that sucks
-	// as it also means that I am accelerating, WHILST BEING STATIONARY!! I need to fix that.
-	// A problem I face because of that is that when I press the right key, the game thinks that I
-	// was in motion, so even when I am applying the right arrow key to move, it will take time until the
-	// "sliding" movement slows down, and it usually takes 5 seconds to do that.
 
       // calculate force acting on player
       if (collidey) {
@@ -1310,6 +1298,9 @@ int main(int argc, char* argv[])
         if (!collidex) { 
           net_force = effective_force;
 	  if (controller.jump) {
+	      // @step: if in the air and jumping in a different direction
+	      // allow more immediate feeling force, instead of the jump adding into net_force
+	      // which gives off, more of a floaty feeling.
 	      r32 threshed_force = roundf(net_force);
 	      b8 move_dir_different = (threshed_force >= 0 && p_move_dir.x < 0) || (threshed_force <= 0 && p_move_dir.x > 0);
 	      if (move_dir_different) {
@@ -1320,7 +1311,7 @@ int main(int argc, char* argv[])
 	      if (is_key_down_x) {
 		  // player is slowing down, in that case, we allow this movement.
 		  b8 move_dir_opposite = (net_force > 0 && p_move_dir.x < 0) || (net_force < 0 && p_move_dir.x > 0);
-		  if (move_dir_opposite)
+		  if (move_dir_opposite || ABS(net_force) < fall_accelx*0.15f)
 		  {
 		      active_force = p_move_dir.x*fall_accelx*timer.tDelta;
 		      net_force = clampf(net_force + active_force, -fall_accelx, fall_accelx);
