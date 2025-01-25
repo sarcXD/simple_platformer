@@ -236,6 +236,7 @@ struct GameState {
   Vec2 atom_size;
 
   // level
+  b8 is_level_done;
   Str256 level_name;
   Level game_level;
   Entity player;
@@ -359,7 +360,7 @@ void level_load(GameState *state, Arena *level_arena, Str256 level_path) {
 		default: {
 		} break;
 	    }
-	}	
+	}
 	str_pushe(&level_property, ele);
     }
 
@@ -369,19 +370,15 @@ void level_load(GameState *state, Arena *level_arena, Str256 level_path) {
     state->obstacles.capacity = state->game_level.entity_count;
     for (u32 i = 0; i < state->game_level.entity_count; i++) {
 	Entity e = state->game_level.entities[i];
+	e.position = e.raw_position;
+	e.size = e.raw_size * state->atom_size * state->render_scale.x;
+	e.bounds = rect(e.position, e.size);
+
 	switch (e.type) {
 	    case PLAYER: {
-		e.position = e.raw_position;
-		e.size = e.raw_size * state->atom_size * state->render_scale.x;
-		e.bounds = rect(e.position, e.size);
-
 		state->player = e;
 	    } break;
 	    case OBSTACLE: {
-		e.position = e.raw_position;
-		e.size = e.raw_size * state->atom_size * state->render_scale.x;
-		e.bounds = rect(e.position, e.size);
-
 		EntityInfo o;
 		o.id = e.id;
 		o.index = i;
@@ -389,6 +386,11 @@ void level_load(GameState *state, Arena *level_arena, Str256 level_path) {
 		state->obstacles.size++;
 	    }
 	    case GOAL: {
+		EntityInfo o;
+		o.id = e.id;
+		o.index = i;
+
+		state->goal = o;
 	    } break;
 	    default: {
 	    } break;
@@ -1380,7 +1382,7 @@ int main(int argc, char* argv[])
     {
 	// @no_clip_movement
         Vec2 dir = get_move_dir(controller);
-        pd_1 = dir * 5.0f * render_scale;
+        pd_1 = dir * 8.0f * render_scale;
         if (pd_1.x < 0.0f) {
           p_motion_dir.x = -1.0f;
         } else if (pd_1.x > 0.0f) {
@@ -1403,61 +1405,61 @@ int main(int argc, char* argv[])
     
     b8 is_collide_x = 0;
     b8 is_collide_y = 0;
+
     for (u32 i = 0; i < state.obstacles.size; i++) {
-      u32 index = state.obstacles.buffer[i].index;
-      Entity e = state.game_level.entities[index];
-      Rect target = e.bounds;
+	// @step: check_obstacle_collisions
 
-      
-      // @func: check_if_player_colliding_with_target
+	// @func: check_if_player_colliding_with_target
+	u32 index = state.obstacles.buffer[i].index;
+	Entity e = state.game_level.entities[index];
+      	Rect target = e.bounds;
 
-      b8 t_collide_x = 0;
-      // need to adjust player position in case of vertical collisions
-      // so need to check which player side collides
-      b8 t_collide_bottom = 0;
-      b8 t_collide_top = 0;
+	b8 t_collide_x = 0;
+	// need to adjust player position in case of vertical collisions
+	// so need to check which player side collides
+	b8 t_collide_bottom = 0;
+	b8 t_collide_top = 0;
 
-      r32 prev_top    = state.player.bounds.tl.y;
-      r32 prev_left   = state.player.bounds.tl.x;
-      r32 prev_bottom = state.player.bounds.br.y;
-      r32 prev_right  = state.player.bounds.br.x;
+	r32 prev_top    = state.player.bounds.tl.y;
+	r32 prev_left   = state.player.bounds.tl.x;
+	r32 prev_bottom = state.player.bounds.br.y;
+	r32 prev_right  = state.player.bounds.br.x;
 
-      r32 p_top     = player_next.tl.y;
-      r32 p_left    = player_next.tl.x;
-      r32 p_bottom  = player_next.br.y;
-      r32 p_right   = player_next.br.x;
+	r32 p_top     = player_next.tl.y;
+	r32 p_left    = player_next.tl.x;
+	r32 p_bottom  = player_next.br.y;
+	r32 p_right   = player_next.br.x;
 
-      r32 t_left    = target.tl.x;
-      r32 t_top     = target.tl.y;
-      r32 t_right   = target.br.x;
-      r32 t_bottom  = target.br.y;
+	r32 t_left    = target.tl.x;
+	r32 t_top     = target.tl.y;
+	r32 t_right   = target.br.x;
+	r32 t_bottom  = target.br.y;
 
-      b8 prev_collide_x = !(prev_left > t_right || prev_right < t_left);
-      b8 new_collide_yb = (p_bottom < t_top && p_top > t_top);
-      b8 new_collide_yt = (p_top > t_bottom && p_bottom < t_bottom);
-      if (prev_collide_x && new_collide_yb) {
-        t_collide_top = 1;
-      }
-      if (prev_collide_x && new_collide_yt) {
-        t_collide_bottom = 1;
-      }
+	b8 prev_collide_x = !(prev_left > t_right || prev_right < t_left);
+	b8 new_collide_target_top = (p_bottom < t_top && p_top > t_top);
+	b8 new_collide_target_bottom = (p_top > t_bottom && p_bottom < t_bottom);
+	if (prev_collide_x && new_collide_target_top) {
+	  t_collide_top = 1;
+	}
+	if (prev_collide_x && new_collide_target_bottom) {
+	  t_collide_bottom = 1;
+	}
 
-      b8 prev_collide_y = !(prev_top < t_bottom || prev_bottom > t_top);
-      b8 new_collide_x = !(p_right < t_left || p_left > t_right);
-      if (prev_collide_y && new_collide_x) {
-        t_collide_x = 1;
-      }
+	b8 prev_collide_y = !(prev_top < t_bottom || prev_bottom > t_top);
+	b8 new_collide_x = !(p_right < t_left || p_left > t_right);
+	if (prev_collide_y && new_collide_x) {
+	  t_collide_x = 1;
+	}
 
-      // @func: update_player_positions_if_sides_colliding
-      if (t_collide_top) {
-        state.player.position.y -= (prev_bottom - t_top - 0.1f);
-      } else if (t_collide_bottom) {
-        state.player.position.y += (t_bottom - prev_top - 0.1f);
-      }
+	// @func: update_player_positions_if_sides_colliding
+	if (t_collide_top) {
+	  state.player.position.y -= (prev_bottom - t_top - 0.1f);
+	} else if (t_collide_bottom) {
+	  state.player.position.y += (t_bottom - prev_top - 0.1f);
+	}
 
-      is_collide_x = is_collide_x || t_collide_x;
-      is_collide_y = is_collide_y || t_collide_top || t_collide_bottom;
-
+	is_collide_x = is_collide_x || t_collide_x;
+	is_collide_y = is_collide_y || t_collide_top || t_collide_bottom;
     }
 
     if (!is_collide_x) {
@@ -1471,6 +1473,50 @@ int main(int argc, char* argv[])
         renderer.cam_update = true;
       }
       state.player.position.y = next_player_position.y;
+    }
+
+    // check collision with goal
+    if (!is_collide_x && !is_collide_y) {
+	Entity goal = state.game_level.entities[state.goal.index];
+	Rect target = goal.bounds;
+
+	b8 t_collide_x = 0;
+	// need to adjust player position in case of vertical collisions
+	// so need to check which player side collides
+	b8 t_collide_bottom = 0;
+	b8 t_collide_top = 0;
+
+	r32 prev_top    = state.player.bounds.tl.y;
+	r32 prev_left   = state.player.bounds.tl.x;
+	r32 prev_bottom = state.player.bounds.br.y;
+	r32 prev_right  = state.player.bounds.br.x;
+
+	r32 p_top     = player_next.tl.y;
+	r32 p_left    = player_next.tl.x;
+	r32 p_bottom  = player_next.br.y;
+	r32 p_right   = player_next.br.x;
+
+	r32 t_left    = target.tl.x;
+	r32 t_top     = target.tl.y;
+	r32 t_right   = target.br.x;
+	r32 t_bottom  = target.br.y;
+
+	b8 prev_collide_x = !(prev_left > t_right || prev_right < t_left);
+	b8 new_collide_yb = (p_bottom < t_top && p_top > t_top);
+	b8 new_collide_yt = (p_top > t_bottom && p_bottom < t_bottom);
+	if (prev_collide_x && new_collide_yb) {
+	  t_collide_top = 1;
+	}
+	if (prev_collide_x && new_collide_yt) {
+	  t_collide_bottom = 1;
+	}
+
+	b8 prev_collide_y = !(prev_top < t_bottom || prev_bottom > t_top);
+	b8 new_collide_x = !(p_right < t_left || p_left > t_right);
+	if (prev_collide_y && new_collide_x) {
+	  t_collide_x = 1;
+	}
+	state.is_level_done = t_collide_x || t_collide_top || t_collide_bottom;
     }
 
     state.player.bounds = rect(state.player.position, state.player.size);
@@ -1520,6 +1566,15 @@ int main(int argc, char* argv[])
 	    state.player.size,
 	    Vec3{1.0f, 0.0f, 0.0f});
     
+    // render_goal
+    {
+	Entity goal = state.game_level.entities[state.goal.index];
+	gl_draw_colored_quad_optimized(
+		&renderer,
+		Vec3{goal.position.x, goal.position.y, -3.0f},
+		goal.size,
+		Vec3{ 0.93f, 0.7f, 0.27f });
+    }
     // render_obstacles
     for (int i = 0; i < state.obstacles.size; i++) {
 	u32 index = state.obstacles.buffer[i].index;
@@ -1541,6 +1596,16 @@ int main(int argc, char* argv[])
     
     // render ui text
     
+    char level_state_output[50];
+    sprintf(level_state_output, "is level clear = %d", state.is_level_done);
+    gl_render_text(
+	    &renderer,
+	    level_state_output,
+	    Vec2{600.0f, 900.0f},
+	    28.0f,
+	    Vec3{0.0f, 0.0f, 0.0f});
+
+
     if (is_collide_x || is_collide_y)
     {
       gl_render_text(&renderer,

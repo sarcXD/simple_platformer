@@ -1,7 +1,7 @@
 # level format version number
 0x1
 # number of entities in  the level
-6
+7
 # entity_id posx poxy sizex sizey
 0 150 70 1 1
 1 0 0 50 1
@@ -9,3 +9,4 @@
 1 200 150 1 1
 1 400 250 1 1
 1 840 400 10 1
+2 900 800 1 1
