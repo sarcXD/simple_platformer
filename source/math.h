@@ -1,6 +1,8 @@
 #ifndef MATH_H
 #define MATH_H
 
+#include <math.h>
+
 #define PI 3.14159265358979323846264338327950288f
 #define SQUARE(x) ((x)*(x))
 #define TO_RAD(x) ((x) * PI / 180.0f)

@@ -27,8 +27,6 @@ typedef u8       b8;
 #include "memory/arena.h"
 #include "math.h"
 
-#define OPPOSITE_SIGNS(x,y) (((x) > 0 && (y) < 0) || ((x) < 0 && (y) > 0))
-
 struct Str256 {
     char buffer[256];
     u32 size;
@@ -270,12 +268,27 @@ void level_load(GameState *state, Arena *level_arena, Str256 level_path) {
     str_init(&level_property);
 
     Entity level_entity;
+    b8 is_comment = 0;
     u32 prop_flag = 0;
     u32 sub_prop_flag = 0;
     entity_id_counter = 0;
 
     for (int i = 0; i < fsize; i++) {
 	char ele = level_data[i];
+
+	// handling comments in level file
+	if (ele == '#') {
+	    is_comment = true;
+	    continue;
+	}
+	if (ele == '\n' && is_comment) {
+	    is_comment = false;
+	    continue;
+	}
+	if (is_comment) {
+	    continue;
+	}
+
 	if (ele == ' ' || ele == '\n') {
 	    switch (prop_flag) {
 		case 0: {
@@ -346,7 +359,7 @@ void level_load(GameState *state, Arena *level_arena, Str256 level_path) {
 		default: {
 		} break;
 	    }
-	}
+	}	
 	str_pushe(&level_property, ele);
     }
 
@@ -1031,6 +1044,7 @@ int main(int argc, char* argv[])
   r32 freefall_accel = -11.8f*motion_scale;
   r32 jump_force = 6.5f*motion_scale;
   r32 effective_force = 0.0f;
+
   Vec2 player_velocity = Vec2{0.0f, 0.0f};
   Vec2 p_move_dir = Vec2{0.0f, 0.0f};
   // direction in which player is effectively travelling
@@ -1238,7 +1252,6 @@ int main(int argc, char* argv[])
     // @section: gravity
     Vec2 pd_1 = Vec2{0.0f, 0.0f};
     p_motion_dir = {0};
-    r32 accel_computed = 0.0f;
     if (collidey)
     {
       player_velocity.y = 0.0f;
@@ -1265,8 +1278,8 @@ int main(int argc, char* argv[])
 
       // calculate force acting on player
       if (collidey) {
-        // @note: can I reduce the states here like I did in the falling case
-        // without separate checks
+	  // @note: can I reduce the states here like I did in the falling case
+	  // without separate checks
 	  if (collidex) {
 	      effective_force = 0.0f;
 	  } else if (is_key_down_x) {
@@ -1297,35 +1310,39 @@ int main(int argc, char* argv[])
         if (!collidex) { 
           net_force = effective_force;
 	  if (controller.jump) {
-	      b8 opposite_signs = OPPOSITE_SIGNS(net_force, p_move_dir.x);
-	      if (opposite_signs) {
+	      r32 threshed_force = roundf(net_force);
+	      b8 move_dir_different = (threshed_force >= 0 && p_move_dir.x < 0) || (threshed_force <= 0 && p_move_dir.x > 0);
+	      if (move_dir_different) {
 		  active_force = p_move_dir.x*fall_accelx/2.0f;
 		  net_force = active_force;
 	      }
 	  } else {
-	      if (ABS(net_force) >= fall_accelx) {
-		// @note: air resistance 
-		// (arbitrary force in opposite direction to reduce speed)
-		// reason: seems that it would work well for the case where
-		// player moves from platform move to free_fall
-		// since the max speed in respective stages is different this can
-		// function as a speed smoother, without too many checks and 
-		// explicit checking
-		b8 is_force_pos = effective_force > 0.0f;
-		b8 is_force_neg = effective_force < 0.0f;
-		r32 friction = 0.0f;
-		if (is_force_pos) {
-		  friction = -fall_accelx*timer.tDelta;
-		} else if (is_force_neg) {
-		  friction = fall_accelx*timer.tDelta;
-		}
-		net_force += friction;
+	      if (is_key_down_x) {
+		  // player is slowing down, in that case, we allow this movement.
+		  b8 move_dir_opposite = (net_force > 0 && p_move_dir.x < 0) || (net_force < 0 && p_move_dir.x > 0);
+		  if (move_dir_opposite)
+		  {
+		      active_force = p_move_dir.x*fall_accelx*timer.tDelta;
+		      net_force = clampf(net_force + active_force, -fall_accelx, fall_accelx);
+		  }
 	      } 
-	      // player is slowing down, in that case, we allow that.
-	      b8 opposite_signs = OPPOSITE_SIGNS(net_force, p_move_dir.x);
-	      if (opposite_signs) {
-		  active_force = p_move_dir.x*fall_accelx*timer.tDelta;
-		  net_force += active_force;
+	      if (ABS(net_force) >= fall_accelx) {
+		  // @note: air resistance 
+		  // (arbitrary force in opposite direction to reduce speed)
+		  // reason: seems that it would work well for the case where
+		  // player moves from platform move to free_fall
+		  // since the max speed in respective stages is different this can
+		  // function as a speed smoother, without too many checks and 
+		  // explicit checking
+		  b8 is_force_pos = effective_force > 0.0f;
+		  b8 is_force_neg = effective_force < 0.0f;
+		  r32 friction = 0.0f;
+		  if (is_force_pos) {
+		    friction = -fall_accelx*timer.tDelta;
+		  } else if (is_force_neg) {
+		    friction = fall_accelx*timer.tDelta;
+		  }
+		  net_force += friction;
 	      }
 	  }
         }
@@ -1344,7 +1361,6 @@ int main(int argc, char* argv[])
         } else if (dx1 > 0.0f) {
           p_motion_dir.x = 1.0f;
         }
-        accel_computed = (dx1 - player_velocity.x)/timer.tDelta;
         player_velocity.x = dx1;
         pd_1.x = dx1;
       }
@@ -1394,10 +1410,8 @@ int main(int argc, char* argv[])
 
     Rect player_next = rect(next_player_position, state.player.size);
     
-    Rect collision_targets[2] = {};
     b8 is_collide_x = 0;
     b8 is_collide_y = 0;
-
     for (u32 i = 0; i < state.obstacles.size; i++) {
       u32 index = state.obstacles.buffer[i].index;
       Entity e = state.game_level.entities[index];
@@ -1516,8 +1530,9 @@ int main(int argc, char* argv[])
 	    Vec3{1.0f, 0.0f, 0.0f});
     
     // render_obstacles
-    for (int i = 0; i < state.game_level.entity_count; i++) {
-	Entity entity = state.game_level.entities[i];
+    for (int i = 0; i < state.obstacles.size; i++) {
+	u32 index = state.obstacles.buffer[i].index;
+	Entity entity = state.game_level.entities[index];
 	gl_draw_colored_quad_optimized(
 		&renderer,
 		Vec3{entity.position.x, entity.position.y, -2.0f},
