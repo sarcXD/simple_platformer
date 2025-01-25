@@ -22,25 +22,13 @@ DONE:
 - Some way to make and define levels
 - Level Creation
 - improved player movement
+- Added comments to the level file format
 
 TODO:
-- Update camera follower for centering player in view (with limits) after
-  a few seconds (maybe like 2 seconds)
 - Level completion Object
 - Audio
+- Update camera follower for centering player in view (with limits) after
+  a few seconds (maybe like 2 seconds)
 - make movement grid based? let's see but probably not
 - Implement Broad Phase Collision for efficient collision handling, let's see
 - vectorize math library with simd
-
-IDEAS:
-*Levels*
-Plain text file
-```
-version_hex
-entity_count
-entity_type posx poxy sizex sizey
-entity_type posx poxy sizex sizey
-entity_type posx poxy sizex sizey
-... repeats entity_count - 3 times
-(3 because we already declared 3 elements in this spec)
-```
