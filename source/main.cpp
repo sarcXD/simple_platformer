@@ -106,7 +106,7 @@ struct Rect {
 };
 
 #define PLAYER_COLORS Vec3{0.45f, 0.8f, 0.2f}
-#define OBSTACLE_COLROS Vec3{0.0f, 0.0f, 0.0f}
+#define OBSTACLE_COLORS Vec3{0.0f, 0.0f, 0.0f}
 #define GOAL_COLORS Vec3{1.0f, 0.0f, 0.0f}
 
 #define PLAYER_Z -1.0f
