@@ -33,6 +33,19 @@ r32 clampf(r32 x, r32 bottom, r32 top)
     return x;
 }
 
+u32 clampi(u32 x, u32 bottom, u32 top)
+{
+    if (x < bottom)
+    {
+        x = bottom;
+    } 
+    else if (x > top)
+    {
+        x = top;
+    }
+    
+    return x;
+}
 
 // ==== Vector Math ====
 union IVec2 {

@@ -40,17 +40,27 @@ void str_init(Str256 *str) {
 Str256 str256(const char *cstr) {
     Str256 str;
     str_init(&str);
-    memcpy((void*)str.buffer, (void*)cstr, strlen(cstr));
+    u32 size = strlen(cstr); 
+    memcpy((void*)str.buffer, (void*)cstr, size);
+    str.size = size;
 
     return str;
 }
 
-void str_pushe(Str256 *str, char c) {
-    if (str->size + 1 >= 256) {
+void str_pushc(Str256 *str, char c) {
+    if (str->size + 1 > 256) {
 	return;
     }
     str->buffer[str->size] = c;
     str->size++;
+}
+
+void str_push256(Str256 *str, Str256 to_push) {
+    u32 available_space = 256 - str->size;
+    SDL_assert(available_space >= to_push.size);
+
+    memcpy((void*)&str->buffer[str->size], (void*)to_push.buffer, to_push.size);
+    str->size += to_push.size;
 }
 
 void str_clear(Str256 *str) {
@@ -141,6 +151,13 @@ struct EntityInfoArr {
     EntityInfo *buffer;
     u32 size;
     u32 capacity;
+};
+
+const int level_count = 2;
+static const char* base_level_path = "./levels/";
+static const char *level_names[20] = {
+    "level0.txt",
+    "level1.txt",
 };
 
 struct Level0x1 {
@@ -236,7 +253,9 @@ struct GameState {
   Vec2 atom_size;
 
   // level
-  b8 is_level_done;
+  // 0: in progress, 1: complete
+  b8 level_state;
+  u32 level_index;
   Str256 level_name;
   Level game_level;
   Entity player;
@@ -261,6 +280,7 @@ void level_load(GameState *state, Arena *level_arena, Str256 level_path) {
 
     size_t fsize;
     char* level_data = (char*)SDL_LoadFile(level_path.buffer, &fsize);
+    SDL_assert(fsize != 0);
 
     u32 feature_flag = 0;
     u32 entity_flag = 0;
@@ -361,7 +381,7 @@ void level_load(GameState *state, Arena *level_arena, Str256 level_path) {
 		} break;
 	    }
 	}
-	str_pushe(&level_property, ele);
+	str_pushc(&level_property, ele);
     }
 
     // @function: load_entities_info and scale
@@ -1076,18 +1096,20 @@ int main(int argc, char* argv[])
   size_t arena_size = max_level_entities*(sizeof(Entity) + sizeof(EntityInfo));
   arena_init(&level_arena, (unsigned char*)level_mem, arena_size);
 
-  Str256 level_path = str256("./levels/level0.txt");
-
+  Str256 base = str256(base_level_path);
+  Str256 _level_name = str256(level_names[state.level_index]);
+  Str256 level_path = base;
+  str_push256(&level_path, _level_name);
   level_load(&state, &level_arena, level_path);
 
   // gameplay camera movement stuff
   Vec2 cam_lt_limit = {0};
   Vec2 cam_rb_limit = {0};
   cam_lt_limit = get_screen_position_from_percent(
-    state, Vec2{20.0f, 80.0f}
+    state, Vec2{30.0f, 70.0f}
   );
   cam_rb_limit = get_screen_position_from_percent(
-    state, Vec2{80.0f, 20.0f}
+    state, Vec2{70.0f, 30.0f}
   );
 
   Controller controller = {0};
@@ -1105,9 +1127,6 @@ int main(int argc, char* argv[])
 
   while (game_running) 
   {
-    update_frame_timer(&timer);
-    enforce_frame_rate(&timer, 60);
-
     controller.jump = 0;
     controller.toggle_gravity = 0;
 
@@ -1209,6 +1228,15 @@ int main(int argc, char* argv[])
             break;
           }
       }
+    }
+
+    // @section: state based loading
+    if (state.level_state == 1) {
+	state.level_index = clampi(state.level_index+1, 0, level_count-1);
+	Str256 _level_name = str256(level_names[state.level_index]);
+	Str256 level_path = base;
+	str_push256(&level_path, _level_name);
+	level_load(&state, &level_arena, level_path);
     }
     
     // @section: input processing
@@ -1516,7 +1544,7 @@ int main(int argc, char* argv[])
 	if (prev_collide_y && new_collide_x) {
 	  t_collide_x = 1;
 	}
-	state.is_level_done = t_collide_x || t_collide_top || t_collide_bottom;
+	state.level_state = t_collide_x || t_collide_top || t_collide_bottom;
     }
 
     state.player.bounds = rect(state.player.position, state.player.size);
@@ -1587,7 +1615,6 @@ int main(int argc, char* argv[])
 	);
     }
 
-    // render_goal
     gl_cq_flush(&renderer);
 
     array_clear(&renderer.cq_pos_batch);
@@ -1597,7 +1624,7 @@ int main(int argc, char* argv[])
     // render ui text
     
     char level_state_output[50];
-    sprintf(level_state_output, "is level clear = %d", state.is_level_done);
+    sprintf(level_state_output, "is level clear = %d", state.level_state);
     gl_render_text(
 	    &renderer,
 	    level_state_output,
@@ -1642,6 +1669,8 @@ int main(int argc, char* argv[])
     
     SDL_GL_SwapWindow(window);
 
+    update_frame_timer(&timer);
+    enforce_frame_rate(&timer, 60);
   }
   
   free(level_mem);
