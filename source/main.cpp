@@ -153,6 +153,7 @@ struct EntityInfoArr {
     u32 capacity;
 };
 
+#define LEVEL_MAX_ENTITIES 100
 const int level_count = 2;
 static const char* base_level_path = "./levels/";
 static const char *level_names[20] = {
@@ -276,7 +277,10 @@ Rect rect(Vec3 position, Vec2 size) {
 }
 
 void level_load(GameState *state, Arena *level_arena, Str256 level_path) {
+    // @step: initialise
     arena_clear(level_arena);
+    memset(&state->game_level, 0, sizeof(Level));
+    state->level_state = 0;
 
     size_t fsize;
     char* level_data = (char*)SDL_LoadFile(level_path.buffer, &fsize);
@@ -292,7 +296,11 @@ void level_load(GameState *state, Arena *level_arena, Str256 level_path) {
     b8 is_comment = 0;
     u32 prop_flag = 0;
     u32 sub_prop_flag = 0;
-    entity_id_counter = 0;
+
+
+    // @note: just decide beforehand, that a level should allow (AT MAX) 100 elements
+    // this should be way overkill
+    state->game_level.entities = (Entity*)arena_alloc(level_arena, LEVEL_MAX_ENTITIES*sizeof(Entity));
 
     for (int i = 0; i < fsize; i++) {
 	char ele = level_data[i];
@@ -319,15 +327,6 @@ void level_load(GameState *state, Arena *level_arena, Str256 level_path) {
 		    continue;
 		} break;
 		case 1: {
-	      	    state->game_level.entity_count = strtol(level_property.buffer, NULL, 16);
-	      	    str_clear(&level_property);
-	      	    prop_flag++;
-
-	      	    // allocate memory for entity_count entries
-	      	    state->game_level.entities = (Entity*)arena_alloc(level_arena, state->game_level.entity_count*sizeof(Entity));
-	      	    continue;
-	      	} break;
-		case 2: {
 		    level_entity.id = entity_id_counter;
 		    switch (sub_prop_flag) {
 			case 0: {
@@ -342,23 +341,23 @@ void level_load(GameState *state, Arena *level_arena, Str256 level_path) {
 	  	            } else if (level_entity.type == GOAL) {
 				level_entity.raw_position.z = GOAL_Z;
 	  	            }
-	  	        } 
+	  	        } break;
 	  	        case 1: {
 	  	            // posx
 	  	            level_entity.raw_position.x = strtol(level_property.buffer, NULL, 10);
-	  	        }
+	  	        } break;
 	  	        case 2: {
 	  	            // posy
 	  	            level_entity.raw_position.y = strtol(level_property.buffer, NULL, 10);
-	  	        }
+	  	        } break;
 	  	        case 3: {
 	  	            // sizex
 	  	            level_entity.raw_size.x = strtol(level_property.buffer, NULL, 10);
-	  	        }
+	  	        } break;
 	  	        case 4: {
 	  	            // sizey
 	  	            level_entity.raw_size.y = strtol(level_property.buffer, NULL, 10);
-	  	        }
+	  	        } break;
 	  	        default: {
 	  	        } break;
 	  	    }
@@ -366,15 +365,13 @@ void level_load(GameState *state, Arena *level_arena, Str256 level_path) {
 	  	    sub_prop_flag++;
 
 	  	    if (ele == '\n') {
-			state->game_level.entities[entity_id_counter] = level_entity;
+			state->game_level.entities[state->game_level.entity_count] = level_entity;
+			state->game_level.entity_count++;
 	  	        entity_id_counter++;
 	  	        sub_prop_flag = 0;
 	  	        memset(&level_entity, 0, sizeof(Entity));
 	  	    }
-	  	    if (entity_id_counter >= state->game_level.entity_count) {
-	  	        // force level loading loop to break
-	  	        i = fsize;
-	  	    }
+		    SDL_assert(state->game_level.entity_count <= LEVEL_MAX_ENTITIES);
 	  	    continue;
 	  	}
 		default: {
@@ -404,7 +401,7 @@ void level_load(GameState *state, Arena *level_arena, Str256 level_path) {
 		o.index = i;
 		state->obstacles.buffer[state->obstacles.size] = o;
 		state->obstacles.size++;
-	    }
+	    } break;
 	    case GOAL: {
 		EntityInfo o;
 		o.id = e.id;
