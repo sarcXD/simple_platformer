@@ -5,7 +5,7 @@ but they work, have led to me learning quite a fair bit about programming in gen
 ## Features
 - vector math (see source/math.h)
 - text rendering with decent performance
-- manual memory management using memory arenas
+- manual memory management using memory arenas (see source/memory/arena.h)
 - a batched renderer for quads that has decent performance
 
 ## Building
