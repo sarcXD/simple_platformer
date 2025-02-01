@@ -24,10 +24,14 @@ DONE:
 - improved player movement
 - Added comments to the level file format
 - Level completion Object
+- Better level format, not having to specify the level element count 
+in the level file.
+
+DOING:
+- Audio
 
 TODO:
-- Better level format, not having to specify the level element count in the level file.
-- Audio
+- Gameplay programming with levels
 - Update camera follower for centering player in view (with limits) after
   a few seconds (maybe like 2 seconds)
 - make movement grid based? let's see but probably not
