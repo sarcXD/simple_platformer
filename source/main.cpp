@@ -690,8 +690,8 @@ Vec3 get_screen_position_from_percent(GameState state, Vec3 v) {
 
 int main(int argc, char* argv[])
 {
-  u32 scr_width = 1024;
-  u32 scr_height = 768;
+  u32 scr_width = 1920;
+  u32 scr_height = 1080;
 
   if (SDL_Init(SDL_INIT_VIDEO) != 0)
   {
@@ -896,7 +896,7 @@ int main(int argc, char* argv[])
   {
     update_frame_timer(&timer);
     //enforce_frame_rate(&timer, 60);
-    hp_ticks = SDL_GetPerformanceCounter();
+    //hp_ticks = SDL_GetPerformanceCounter();
     cum_math_ticks = 0;
 
     controller.jump = 0;
@@ -1277,8 +1277,7 @@ int main(int argc, char* argv[])
     u32 max_col_ele = max_cq_count/max_row_ele;
     Vec2 screen_render_size = (state.render_scale * state.screen_size)/2.0f;
     Vec2 based_size = Vec2{
-      screen_render_size.x / max_row_ele,
-      screen_render_size.y / max_col_ele
+      16.0f, 16.0f
     };
 #if 1
     for (int i=0;i<max_cq_count;i++) {
@@ -1315,12 +1314,12 @@ int main(int argc, char* argv[])
     renderer->cq_batch_count = 0;
     // render ui text
     
-    u64 new_ticks = SDL_GetPerformanceCounter();
-    r64 hp_time = (r64)(new_ticks - hp_ticks) / (r64) hp_tick_freq;
-    SDL_Log("ticks time: %fs", hp_time);
+    //u64 new_ticks = SDL_GetPerformanceCounter();
+    //r64 hp_time = (r64)(new_ticks - hp_ticks) / (r64) hp_tick_freq;
+    //SDL_Log("ticks time: %fs", hp_time);
 
-    cum_math_time = (r64)cum_math_ticks/(r64)tick_freq;
-    SDL_Log("multiply4mv time: %fs", cum_math_time);
+    //cum_math_time = (r64)cum_math_ticks/(r64)tick_freq;
+    //SDL_Log("multiply4mv time: %fs", cum_math_time);
 
     if (is_collide_x || is_collide_y)
     {

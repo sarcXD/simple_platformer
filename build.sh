@@ -14,7 +14,7 @@ build_opts="$build_dir/main"
 lib_path="libs/SDL2 libs/freetype/libfreetype.so"
 link_opts="-L $lib_path -lSDL2"
 
-build_command="clang++ -std=c++11 -g -O0 $include_opts $files $link_opts -o $build_opts" 
+build_command="clang++ -std=c++11 -g -O2 $include_opts $files $link_opts -o $build_opts" 
 
 printf "Building Project...\n"
 printf "$build_command\n\n"

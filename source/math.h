@@ -10,7 +10,7 @@
 
 // @todo:
 // - make everything simd
-#define USE_SSE 1
+#define USE_SSE 0
 
 r32 clampf(r32 x, r32 bottom, r32 top)
 {
@@ -393,7 +393,7 @@ Mat4 subtract4m(Mat4 a, Mat4 b)
 
 Vec4 multiply4mv(Mat4 m, Vec4 v)
 {
-    r64 prev_tick = SDL_GetPerformanceCounter();
+    //r64 prev_tick = SDL_GetPerformanceCounter();
 
     Vec4 res = vec4(0);
 #if USE_SSE
@@ -434,8 +434,8 @@ Vec4 multiply4mv(Mat4 m, Vec4 v)
   res.w += v.w*m.data[3][3];
 #endif
 
-    r64 curr_tick = SDL_GetPerformanceCounter();
-    cum_math_ticks += curr_tick - prev_tick;
+    //r64 curr_tick = SDL_GetPerformanceCounter();
+    //cum_math_ticks += curr_tick - prev_tick;
 
   return res;
 }
