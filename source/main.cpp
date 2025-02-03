@@ -1,8 +1,10 @@
 #include <SDL2/SDL.h>
 #include <glad/glad.h>
 
-#define STB_IMAGE_IMPLEMENTATION
-#include "stb_image.h"
+#define MINIAUDIO_IMPLEMENTATION
+#include "miniaudio.h"
+
+#include <stdio.h>
 
 #include <ft2build.h>
 #include FT_FREETYPE_H
@@ -1122,6 +1124,17 @@ int main(int argc, char* argv[])
 
   FrameTimer timer = frametimer();
 
+  // @section: audio
+  ma_result result;
+  ma_engine engine;
+
+  result = ma_engine_init(NULL, &engine);
+  if (result != MA_SUCCESS) {
+      return -1;
+  }
+
+  ma_engine_play_sound(&engine, "assets/audio/winds_of_stories.mp3", NULL);
+
   while (game_running) 
   {
     controller.jump = 0;
@@ -1670,6 +1683,7 @@ int main(int argc, char* argv[])
     enforce_frame_rate(&timer, 60);
   }
   
+  ma_engine_uninit(&engine);
   free(level_mem);
   free(batch_memory);
   free(renderer.ui_text.transforms);

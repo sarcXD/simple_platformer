@@ -12,7 +12,7 @@ files="source/main.cpp $include_path/glad/glad.c"
 build_opts="$build_dir/main"
 
 lib_path="libs/SDL2 libs/freetype/libfreetype.so"
-link_opts="-L $lib_path -lSDL2"
+link_opts="-L $lib_path -lSDL2 -lpthread -lm -ldl"
 
 build_command="clang++ -std=c++11 -g -O0 -fsanitize=address $include_opts $files $link_opts -o $build_opts"
 
