@@ -1124,16 +1124,26 @@ int main(int argc, char* argv[])
 
   FrameTimer timer = frametimer();
 
-  // @section: audio
+  // @section: audio_setup
   ma_result result;
   ma_engine engine;
 
   result = ma_engine_init(NULL, &engine);
   if (result != MA_SUCCESS) {
+      SDL_Log("Failed to initialise audio engine\n");
       return -1;
   }
 
-  ma_engine_play_sound(&engine, "assets/audio/winds_of_stories.mp3", NULL);
+  // @resume: playing around with audio
+  ma_sound sound;
+  const char *sound_path = "assets/audio/Click_Soft_01.mp3";
+  result = ma_sound_init_from_file(&engine, sound_path, 0, NULL, NULL, &sound);
+  if (result != MA_SUCCESS) {
+      SDL_Log("Failed to load sound: %s\n", sound_path);
+      return -1;
+  }
+  //ma_sound_set_pitch(&sound, 1.5f);
+  //ma_sound_set_looping(&sound, 1);
 
   while (game_running) 
   {
@@ -1593,6 +1603,12 @@ int main(int argc, char* argv[])
     }
     
     // output
+
+    // @section: audio 
+    if (controller.jump) {
+	ma_sound_start(&sound);
+    }
+
     glClearColor(0.8f, 0.5f, 0.7f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     

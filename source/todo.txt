@@ -28,7 +28,7 @@ DONE:
 in the level file.
 
 DOING:
-- Audio
+- Audio: figure out what the correct audio sound for jumping will be.
 
 TODO:
 - Gameplay programming with levels
