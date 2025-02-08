@@ -1,10 +1,19 @@
-# level format version number
+# level format
 0x1
-# entity_id posx poxy sizex sizey
-0 150 70 1 1
-1 0 0 50 1
-1 0 0 1 50
-1 200 150 1 1
-1 400 250 1 1
-1 840 400 10 1
-2 900 800 1 1
+#   type    posx    posy    sizex   sizey
+    0	    150	    70	    1	    1
+    1 	    0	    0	    50	    1
+    1	    0	    0	    1	    50
+    1 	    200	    150	    1	    1
+    1 	    400	    250	    1	    1
+    1 	    840	    400     10	    1
+    2 	    900	    800     1	    1
+# == gameplay elements ==
+# gravity inverter
+#   type    posx    posy    sizex   sizey
+    3	    650	    60	    1	    1
+# teleporter
+#   type    posx    posy    sizex   sizey   id	    link_id
+    4 	    800	    90	    1	    2	    50	    51
+    4 	    800	    490	    1	    2	    51	    50
+

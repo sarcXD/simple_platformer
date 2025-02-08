@@ -26,12 +26,15 @@ DONE:
 - Level completion Object
 - Better level format, not having to specify the level element count 
 in the level file.
+- Added invert gravity mechanic
 
 DOING:
+- teleport block mechanic
+
+BLOCKED:
 - Audio: figure out what the correct audio sound for jumping will be.
 
 TODO:
-- Gameplay programming with levels
 - Update camera follower for centering player in view (with limits) after
   a few seconds (maybe like 2 seconds)
 - make movement grid based? let's see but probably not

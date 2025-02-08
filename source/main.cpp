@@ -117,10 +117,6 @@ struct Rect {
   Vec3 position;
 };
 
-#define PLAYER_COLORS Vec3{0.45f, 0.8f, 0.2f}
-#define OBSTACLE_COLORS Vec3{0.0f, 0.0f, 0.0f}
-#define GOAL_COLORS Vec3{1.0f, 0.0f, 0.0f}
-
 #define PLAYER_Z -1.0f
 #define OBSTACLE_Z -2.0f
 #define GOAL_Z -3.0f
@@ -128,12 +124,17 @@ struct Rect {
 enum ENTITY_TYPE {
     PLAYER = 0,
     OBSTACLE = 1,
-    GOAL = 2
+    GOAL = 2,
+    INVERT_GRAVITY = 3,
+    TELEPORT = 4,
 };
+
+static r32 entity_z[10];
+static Vec3 entity_colors[10];
 
 struct Entity {
     // @todo: set a base resolution and design the game elements around it
-    u32 id;
+    s32 id;
     ENTITY_TYPE type;
     // raw property values in pixels
     Vec3 raw_position;
@@ -142,6 +143,8 @@ struct Entity {
     Vec3 position;
     Vec2 size;
     Rect bounds;
+    // teleporter
+    u32 link_id;    // which portal this is linked to
 };
 
 struct EntityInfo {
@@ -261,9 +264,13 @@ struct GameState {
   u32 level_index;
   Str256 level_name;
   Level game_level;
-  Entity player;
+  EntityInfo player;
   EntityInfo goal;
   EntityInfoArr obstacles;
+  // gameplay
+  b8 flip_gravity;
+  b8 inside_teleporter;
+  b8 teleporting;
 };
 
 Rect rect(Vec3 position, Vec2 size) {
@@ -278,7 +285,25 @@ Rect rect(Vec3 position, Vec2 size) {
   return r;
 }
 
-void level_load(GameState *state, Arena *level_arena, Str256 level_path) {
+Entity get_entity_by_id(GameState state, u32 id) {
+    Entity res;
+    res.id = -1;
+
+    for (int i = 0; i < state.game_level.entity_count; i++) {
+	Entity e = state.game_level.entities[i];
+	if (e.id == id) {
+	    res = e;
+	    break;
+	}
+    }
+
+    // We should always have the entity we are trying to look for
+    SDL_assert(res.id != -1);
+
+    return res;
+}
+
+void load_level(GameState *state, Arena *level_arena, Str256 level_path) {
     // @step: initialise
     arena_clear(level_arena);
     memset(&state->game_level, 0, sizeof(Level));
@@ -329,20 +354,17 @@ void level_load(GameState *state, Arena *level_arena, Str256 level_path) {
 		    continue;
 		} break;
 		case 1: {
-		    level_entity.id = entity_id_counter;
 		    switch (sub_prop_flag) {
 			case 0: {
+			    // auto-generated id
+			    // @note: will be overwritten when id is explicitly defined
+			    level_entity.id = entity_id_counter;
+
 			    // type
 			    level_entity.type = (ENTITY_TYPE)strtol(level_property.buffer, NULL, 10);
 
 	  	            // set z index based off of entity type
-	  	            if (level_entity.type == PLAYER) {
-				level_entity.raw_position.z = PLAYER_Z;
-	  	            } else if (level_entity.type == OBSTACLE) {
-				level_entity.raw_position.z = OBSTACLE_Z;
-	  	            } else if (level_entity.type == GOAL) {
-				level_entity.raw_position.z = GOAL_Z;
-	  	            }
+			    level_entity.raw_position.z = entity_z[level_entity.type];
 	  	        } break;
 	  	        case 1: {
 	  	            // posx
@@ -360,6 +382,14 @@ void level_load(GameState *state, Arena *level_arena, Str256 level_path) {
 	  	            // sizey
 	  	            level_entity.raw_size.y = strtol(level_property.buffer, NULL, 10);
 	  	        } break;
+			case 5: {
+			    // pre-defined id
+			    level_entity.id = strtol(level_property.buffer, NULL, 10);
+			} break;
+			case 6: {
+			    // linked id
+			    level_entity.link_id = strtol(level_property.buffer, NULL, 10);
+			}
 	  	        default: {
 	  	        } break;
 	  	    }
@@ -393,22 +423,20 @@ void level_load(GameState *state, Arena *level_arena, Str256 level_path) {
 	e.size = e.raw_size * state->atom_size * state->render_scale.x;
 	e.bounds = rect(e.position, e.size);
 
+	EntityInfo o;
+	o.id = e.id;
+	o.index = i;
+
 	switch (e.type) {
 	    case PLAYER: {
-		state->player = e;
+		state->player = o;
 	    } break;
-	    case OBSTACLE: {
-		EntityInfo o;
-		o.id = e.id;
-		o.index = i;
+	    case OBSTACLE: 
+	    case INVERT_GRAVITY: {
 		state->obstacles.buffer[state->obstacles.size] = o;
 		state->obstacles.size++;
 	    } break;
 	    case GOAL: {
-		EntityInfo o;
-		o.id = e.id;
-		o.index = i;
-
 		state->goal = o;
 	    } break;
 	    default: {
@@ -932,6 +960,23 @@ int main(int argc, char* argv[])
   u32 scr_width = 1280;
   u32 scr_height = 960;
   
+  {
+      // entity configs setup
+    entity_colors[PLAYER] = Vec3{0.45f, 0.8f, 0.2f};
+    entity_colors[OBSTACLE] = Vec3{1.0f, 1.0f, 1.0f};
+    entity_colors[GOAL] = Vec3{ 0.93f, 0.7f, 0.27f };
+    entity_colors[INVERT_GRAVITY] = Vec3{1.0f, 0.0f, 0.0f};
+    entity_colors[TELEPORT] = Vec3{0.0f, 0.0f, 0.0f};
+
+    entity_z[OBSTACLE] = -3.0f;
+    entity_z[GOAL] = -4.0f;
+    {
+	entity_z[TELEPORT] = -5.0f; 
+	entity_z[INVERT_GRAVITY] = -5.0f;
+    }
+    entity_z[PLAYER] = -6.0f;
+  }
+
   if (SDL_Init(SDL_INIT_VIDEO) != 0)
   {
     printf("Error initialising SDL2: %s\n", SDL_GetError());
@@ -1059,6 +1104,7 @@ int main(int argc, char* argv[])
   );
 
   // @section: gameplay variables
+  r32 gravity_diry = 1.0f;
   r32 motion_scale = 2.0f;
   r32 fall_accelx = 3.0f*motion_scale;
   r32 move_accelx = 4.0f*motion_scale;
@@ -1099,7 +1145,7 @@ int main(int argc, char* argv[])
   Str256 _level_name = str256(level_names[state.level_index]);
   Str256 level_path = base;
   str_push256(&level_path, _level_name);
-  level_load(&state, &level_arena, level_path);
+  load_level(&state, &level_arena, level_path);
 
   // gameplay camera movement stuff
   Vec2 cam_lt_limit = {0};
@@ -1116,6 +1162,7 @@ int main(int argc, char* argv[])
   b8 is_key_down_x = false;
   
   // gravity calculations
+  b8 was_colliding = 0;
   b8 collidex = 0;
   b8 collidey = 0;
   b8 is_gravity = 0;
@@ -1123,6 +1170,10 @@ int main(int argc, char* argv[])
   b8 game_running = 1;
 
   FrameTimer timer = frametimer();
+
+#if AUDIO
+  // @resume: audio has clicky sound, I need to figure generate audio clips that are better.
+  // Why is this difficult
 
   // @section: audio_setup
   ma_result result;
@@ -1134,16 +1185,30 @@ int main(int argc, char* argv[])
       return -1;
   }
 
-  // @resume: playing around with audio
-  ma_sound sound;
-  const char *sound_path = "assets/audio/Click_Soft_01.mp3";
-  result = ma_sound_init_from_file(&engine, sound_path, 0, NULL, NULL, &sound);
+  ma_sound jump_sound;
+  ma_sound landing_sound;
+  ma_sound level_complete_sound;
+  const char *sound_path = "assets/audio/jump.wav";
+  result = ma_sound_init_from_file(&engine, sound_path, 0, NULL, NULL, &jump_sound);
   if (result != MA_SUCCESS) {
       SDL_Log("Failed to load sound: %s\n", sound_path);
       return -1;
   }
-  //ma_sound_set_pitch(&sound, 1.5f);
-  //ma_sound_set_looping(&sound, 1);
+
+  sound_path = "assets/audio/landing.wav";
+  result = ma_sound_init_from_file(&engine, sound_path, 0, NULL, NULL, &landing_sound);
+  if (result != MA_SUCCESS) {
+      SDL_Log("Failed to load sound: %s\n", sound_path);
+      return -1;
+  }
+
+  sound_path = "assets/audio/level_complete.wav";
+  result = ma_sound_init_from_file(&engine, sound_path, 0, NULL, NULL, &level_complete_sound);
+  if (result != MA_SUCCESS) {
+      SDL_Log("Failed to load sound: %s\n", sound_path);
+      return -1;
+  }
+#endif
 
   while (game_running) 
   {
@@ -1190,27 +1255,27 @@ int main(int argc, char* argv[])
 	    // @todo: fix this janky manual camera movement 
 	    if (ev.key.keysym.sym == SDLK_F5)
 	    {
-		level_load(&state, &level_arena, level_path);
+		load_level(&state, &level_arena, level_path);
 		renderer.cam_update = true;
 	    }
 	    if (ev.key.keysym.sym == SDLK_LEFT)
 	    {
-		renderer.cam_pos.x -= 20.0f * state.render_scale.x;
+		renderer.cam_pos.x -= 40.0f * state.render_scale.x;
 		renderer.cam_update = true;
 	    }
 	    if (ev.key.keysym.sym == SDLK_RIGHT)
 	    {
-		renderer.cam_pos.x += 20.0f * state.render_scale.x;
+		renderer.cam_pos.x += 40.0f * state.render_scale.x;
 		renderer.cam_update = true;
 	    }
 	    if (ev.key.keysym.sym == SDLK_UP)
 	    {
-		renderer.cam_pos.y += 20.0f * state.render_scale.x;
+		renderer.cam_pos.y += 40.0f * state.render_scale.x;
 		renderer.cam_update = true;
 	    }
 	    if (ev.key.keysym.sym == SDLK_DOWN)
 	    {
-		renderer.cam_pos.y -= 20.0f * state.render_scale.x;
+		renderer.cam_pos.y -= 40.0f * state.render_scale.x;
 		renderer.cam_update = true;
 	    }
 	    if (renderer.cam_update) {
@@ -1242,6 +1307,10 @@ int main(int argc, char* argv[])
               controller.move_right = 0;
               key_down_time[PK_D] = 0.0f;
             }
+	    if (ev.key.keysym.sym == SDLK_i)
+	    {
+		state.flip_gravity = 1;
+	    }
           } break;
         default:
           {
@@ -1256,7 +1325,7 @@ int main(int argc, char* argv[])
 	Str256 _level_name = str256(level_names[state.level_index]);
 	Str256 level_path = base;
 	str_push256(&level_path, _level_name);
-	level_load(&state, &level_arena, level_path);
+	load_level(&state, &level_arena, level_path);
     }
     
     // @section: input processing
@@ -1267,6 +1336,14 @@ int main(int argc, char* argv[])
       p_move_dir.x = 0.0f;
       effective_force = 0.0f;
       p_motion_dir = {0};
+    }
+    if (state.flip_gravity)
+    {
+	// @resume: I need to add a buffer zone, something like some iframes, so that once I touch a gravity block
+	// I don't reflip gravity if I am in contact with the block for 1-2 seconds right after first colliding
+	gravity_diry = gravity_diry > 0.0f ? -0.8f : 1.0f;
+	//gravity_diry *= -1.0f;
+	state.flip_gravity = 0;
     }
     if (controller.move_up)
     {
@@ -1408,19 +1485,19 @@ int main(int argc, char* argv[])
 
       {
         // vertical motion when falling
-        r32 dy1 = player_velocity.y;
-        dy1 = dy1 + freefall_accel*timer.tDelta;
+        r32 dy1 = player_velocity.y; 
+        dy1 = dy1 + gravity_diry * freefall_accel * timer.tDelta;
         if (controller.jump) {
-          dy1 = jump_force;
+          dy1 = gravity_diry*jump_force;
 	  if (!collidey) {
 	      // if we are in the air, the jump force is 75% of normal
-	      dy1 = jump_force * 0.75f;
+	      dy1 = gravity_diry * jump_force * 0.75f;
 	  }
         }
-        if (dy1 < 0.0f) {
-          p_motion_dir.y = -1.0f;
-        } else if (dy1 > 0.0f) {
-          p_motion_dir.y = 1.0f;
+        if (dy1 < gravity_diry * -0.01f) {
+          p_motion_dir.y = -gravity_diry;
+        } else if (dy1 > gravity_diry * 0.01f) {
+          p_motion_dir.y = gravity_diry;
         }
         player_velocity.y = dy1;
         pd_1.y = dy1;
@@ -1445,11 +1522,12 @@ int main(int argc, char* argv[])
 
  
     // @section: collision
+    Entity player = state.game_level.entities[state.player.index];
     Vec3 next_player_position;
-    next_player_position.x = state.player.position.x + pd_1.x;
-    next_player_position.y = state.player.position.y + pd_1.y;
+    next_player_position.x = player.position.x + pd_1.x;
+    next_player_position.y = player.position.y + pd_1.y;
 
-    Rect player_next = rect(next_player_position, state.player.size);
+    Rect player_next = rect(next_player_position, player.size);
     
     b8 is_collide_x = 0;
     b8 is_collide_y = 0;
@@ -1468,10 +1546,10 @@ int main(int argc, char* argv[])
 	b8 t_collide_bottom = 0;
 	b8 t_collide_top = 0;
 
-	r32 prev_top    = state.player.bounds.tl.y;
-	r32 prev_left   = state.player.bounds.tl.x;
-	r32 prev_bottom = state.player.bounds.br.y;
-	r32 prev_right  = state.player.bounds.br.x;
+	r32 prev_top    = player.bounds.tl.y;
+	r32 prev_left   = player.bounds.tl.x;
+	r32 prev_bottom = player.bounds.br.y;
+	r32 prev_right  = player.bounds.br.x;
 
 	r32 p_top     = player_next.tl.y;
 	r32 p_left    = player_next.tl.x;
@@ -1501,9 +1579,12 @@ int main(int argc, char* argv[])
 
 	// @func: update_player_positions_if_sides_colliding
 	if (t_collide_top) {
-	  state.player.position.y -= (prev_bottom - t_top - 0.1f);
+	  player.position.y -= (prev_bottom - t_top - 0.1f);
 	} else if (t_collide_bottom) {
-	  state.player.position.y += (t_bottom - prev_top - 0.1f);
+	  player.position.y += (t_bottom - prev_top - 0.1f);
+	}
+	if (e.type == INVERT_GRAVITY && (t_collide_x || t_collide_top || t_collide_bottom)) {
+	    state.flip_gravity = 1;
 	}
 
 	is_collide_x = is_collide_x || t_collide_x;
@@ -1514,30 +1595,19 @@ int main(int argc, char* argv[])
       if (p_motion_dir.x != 0.0f) {
         renderer.cam_update = true;
       }
-      state.player.position.x = next_player_position.x;
+      player.position.x = next_player_position.x;
     }
     if (!is_collide_y) {
       if (p_motion_dir.y != 0.0f) {
         renderer.cam_update = true;
       }
-      state.player.position.y = next_player_position.y;
+      player.position.y = next_player_position.y;
     }
 
     // check collision with goal
     if (!is_collide_x && !is_collide_y) {
 	Entity goal = state.game_level.entities[state.goal.index];
 	Rect target = goal.bounds;
-
-	b8 t_collide_x = 0;
-	// need to adjust player position in case of vertical collisions
-	// so need to check which player side collides
-	b8 t_collide_bottom = 0;
-	b8 t_collide_top = 0;
-
-	r32 prev_top    = state.player.bounds.tl.y;
-	r32 prev_left   = state.player.bounds.tl.x;
-	r32 prev_bottom = state.player.bounds.br.y;
-	r32 prev_right  = state.player.bounds.br.x;
 
 	r32 p_top     = player_next.tl.y;
 	r32 p_left    = player_next.tl.x;
@@ -1549,32 +1619,95 @@ int main(int argc, char* argv[])
 	r32 t_right   = target.br.x;
 	r32 t_bottom  = target.br.y;
 
-	b8 prev_collide_x = !(prev_left > t_right || prev_right < t_left);
-	b8 new_collide_yb = (p_bottom < t_top && p_top > t_top);
-	b8 new_collide_yt = (p_top > t_bottom && p_bottom < t_bottom);
-	if (prev_collide_x && new_collide_yb) {
-	  t_collide_top = 1;
-	}
-	if (prev_collide_x && new_collide_yt) {
-	  t_collide_bottom = 1;
-	}
+	b8 t_collide = !((p_left > t_right) || (p_right < t_left) || (p_top < t_bottom) || (p_bottom > t_top));
 
-	b8 prev_collide_y = !(prev_top < t_bottom || prev_bottom > t_top);
-	b8 new_collide_x = !(p_right < t_left || p_left > t_right);
-	if (prev_collide_y && new_collide_x) {
-	  t_collide_x = 1;
-	}
-	state.level_state = t_collide_x || t_collide_top || t_collide_bottom;
+	state.level_state = t_collide;
     }
 
-    state.player.bounds = rect(state.player.position, state.player.size);
+    // @section: teleport
+    b8 inside_teleporter_now = 0;
+    b8 teleporting_now = state.teleporting;
+    Vec2 teleported_position = Vec2{player.position.x, player.position.y};
+    for (u32 i = 0; i < state.game_level.entity_count; i++) {
+	/*
+	 * @note;
+	 * TELEPORT START ...
+	 * 1. go inside a teleport block, player marked as in block
+	 * 2. hit teleport block center, player marked as teleporting
+	 * 3. player teleported to new block
+	 * 4. once player exits the new block, player marked as in block false
+	 * 5. then player marked as teleporting false
+	 * ... TELEPORT COMPLETE
+	 */
+	Entity e = state.game_level.entities[i];
+	if (e.type != TELEPORT) {
+	    continue;
+	}
+
+	Rect target = e.bounds;
+
+	r32 p_top     = player.bounds.tl.y;
+	r32 p_left    = player.bounds.tl.x;
+	r32 p_bottom  = player.bounds.br.y;
+	r32 p_right   = player.bounds.br.x;
+
+	r32 t_left    = target.tl.x;
+	r32 t_top     = target.tl.y;
+	r32 t_right   = target.br.x;
+	r32 t_bottom  = target.br.y;
+
+	if (teleporting_now) {
+	    // check if player is outside of this teleport block or not
+	    b8 t_collide = !(p_left > t_right || p_right < t_left || p_top < t_bottom || p_bottom > t_top);
+	    inside_teleporter_now |= t_collide;
+
+	    continue;
+	}
+	// check if player is completely inside teleport block
+	b8 t_inside = !(p_left > t_right || p_right < t_left || p_top < t_bottom || p_bottom > t_top);
+	//b8 t_inside = p_left >= t_left && p_top <= t_top && p_right <= t_right && p_bottom >= t_bottom;
+	if (!t_inside) {
+	    continue;
+	}
+
+	inside_teleporter_now |= t_inside;
+	
+	// check if player x-axis is within teleport x-axis
+	Vec2 displacement;
+	displacement.x = player.position.x - e.position.x;
+	displacement.y = player.position.y - e.position.y;
+
+	if (ABS(displacement.x) <= 5.0f*render_scale) {
+	    teleporting_now = 1;
+	    {
+		// @step: teleport_player
+		Entity teleport_to = get_entity_by_id(state, e.link_id);
+		// set next position
+		teleported_position.x = teleport_to.position.x + displacement.x;
+		teleported_position.y = teleport_to.position.y + displacement.y;
+		// add displacement so it gives a smooth effect of just moving over to someplace
+	    }
+	}
+    }
+    {
+	// update teleport variable
+	state.inside_teleporter = inside_teleporter_now;
+	state.teleporting = teleporting_now && state.inside_teleporter;
+	if (state.teleporting) {
+	    player.position.x = teleported_position.x;
+	    player.position.y = teleported_position.y;
+	}
+    }
+
+    player.bounds = rect(player.position, player.size);
+    was_colliding = collidex || collidey;
     collidex = is_collide_x;
     collidey = is_collide_y;
 
     // @func: update_camera
     if (renderer.cam_update == true) {
       renderer.cam_update = false;
-      Vec2 player_screen = state.player.position.v2() - renderer.cam_pos.v2();
+      Vec2 player_screen = player.position.v2() - renderer.cam_pos.v2();
 
       if (player_screen.x <= cam_lt_limit.x && p_motion_dir.x == -1) {
         renderer.cam_pos.x += pd_1.x;
@@ -1601,19 +1734,35 @@ int main(int argc, char* argv[])
         renderer.cam_update = false;
       }
     }
+
+    {
+	// update player entity
+	state.game_level.entities[state.player.index] = player;
+    }
     
     // output
 
+#if AUDIO
     // @section: audio 
     if (controller.jump) {
-	ma_sound_start(&sound);
+	ma_sound_start(&jump_sound);
     }
+    if ((collidex || collidey) && !was_colliding) {
+	//ma_sound_set_pitch(&landing_sound, 0.5f);
+	//ma_sound_set_volume(&landing_sound, 0.2);
+	ma_sound_start(&landing_sound);
+    }
+    if (state.level_state == 1) {
+	ma_sound_start(&level_complete_sound);
+    }
+#endif
 
     glClearColor(0.8f, 0.5f, 0.7f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     
     // @section: rendering
     // render_player
+#if old_drawing
     gl_draw_colored_quad_optimized(
 	    &renderer,
 	    state.player.position,
@@ -1629,15 +1778,17 @@ int main(int argc, char* argv[])
 		goal.size,
 		Vec3{ 0.93f, 0.7f, 0.27f });
     }
-    // render_obstacles
-    for (int i = 0; i < state.obstacles.size; i++) {
-	u32 index = state.obstacles.buffer[i].index;
-	Entity entity = state.game_level.entities[index];
+#endif
+
+    // render_entities
+    for (int i = 0; i < state.game_level.entity_count; i++) {
+	Entity entity = state.game_level.entities[i];
+	Vec3 color = entity_colors[entity.type];
 	gl_draw_colored_quad_optimized(
 		&renderer,
-		Vec3{entity.position.x, entity.position.y, -2.0f},
+		entity.position,
 		entity.size,
-		Vec3{1.0f, 1.0f, 1.0f}
+		color
 	);
     }
 
@@ -1693,13 +1844,20 @@ int main(int argc, char* argv[])
                    28.0f*render_scale,                     // size
                    Vec3{0.0f, 0.0f, 0.0f});   // color
     
+    sprintf(fmt_buffer, "inside_teleporter: %d\nteleporting: %d", state.inside_teleporter, state.teleporting);
+    gl_render_text(&renderer,
+                   fmt_buffer,
+                   Vec2{900.0f, 190.0f},      // position
+                   28.0f*render_scale,                     // size
+                   Vec3{0.0f, 0.0f, 0.0f});   // color
+
     SDL_GL_SwapWindow(window);
 
     update_frame_timer(&timer);
     enforce_frame_rate(&timer, 60);
   }
   
-  ma_engine_uninit(&engine);
+  //ma_engine_uninit(&engine);
   free(level_mem);
   free(batch_memory);
   free(renderer.ui_text.transforms);
