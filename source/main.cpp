@@ -257,6 +257,7 @@ struct GameState {
   Vec2 render_scale;
   // the smallest size a unit can be. This scales with render_scale
   Vec2 atom_size;
+  Rect camera_bounds;
 
   // level
   // 0: in progress, 1: complete
@@ -283,6 +284,22 @@ Rect rect(Vec3 position, Vec2 size) {
   r.br.y = position.y - size.y;
 
   return r;
+}
+
+b8 aabb_collision_rect(Rect a, Rect b) {
+    r32 a_left = a.tl.x;
+    r32 a_top = a.tl.y;
+    r32 a_right = a.br.x;
+    r32 a_bottom = a.br.y;
+
+    r32 b_left = b.tl.x;
+    r32 b_top = b.tl.y;
+    r32 b_right = b.br.x;
+    r32 b_bottom = b.br.y;
+
+    return !(
+	    a_left > b_right || a_right < b_left ||
+	    a_top < b_bottom || a_bottom > b_top);
 }
 
 Entity get_entity_by_id(GameState state, u32 id) {
@@ -1137,6 +1154,17 @@ int main(int argc, char* argv[])
   state.screen_size = Vec2{(r32)scr_width, (r32)scr_height};
   state.render_scale = vec2(render_scale);
 
+  // @todo: rename rect members (makes more sense)
+  // tl -> lt
+  // br -> rb
+  {
+      // @step: calculate camera bounds
+      Vec2 cam_lt = Vec2{renderer.cam_pos.x, renderer.cam_pos.y + state.screen_size.y};
+      Vec2 cam_rb = Vec2{renderer.cam_pos.x + state.screen_size.x, renderer.cam_pos.y};
+      state.camera_bounds.tl = cam_lt;
+      state.camera_bounds.br = cam_rb;
+  }
+
   // @section: level elements
   
   // @step: init_level_arena
@@ -1264,6 +1292,7 @@ int main(int argc, char* argv[])
 		load_level(&state, &level_arena, level_path);
 		renderer.cam_update = true;
 	    }
+#if CAM_MANUAL_MOVE
 	    if (ev.key.keysym.sym == SDLK_LEFT)
 	    {
 		renderer.cam_pos.x -= 40.0f * state.render_scale.x;
@@ -1284,14 +1313,7 @@ int main(int argc, char* argv[])
 		renderer.cam_pos.y -= 40.0f * state.render_scale.x;
 		renderer.cam_update = true;
 	    }
-	    if (renderer.cam_update) {
-		renderer.cam_view = camera_create4m(
-	    	  renderer.cam_pos, 
-	    	  add3v(renderer.cam_pos, renderer.cam_look), 
-	    	  renderer.preset_up_dir
-	    	);
-	    	renderer.cam_update = false;
-	    }
+#endif
           } break;
         case (SDL_KEYUP):
           {
@@ -1609,19 +1631,7 @@ int main(int argc, char* argv[])
 	Entity goal = state.game_level.entities[state.goal.index];
 	Rect target = goal.bounds;
 
-	r32 p_top     = player_next.tl.y;
-	r32 p_left    = player_next.tl.x;
-	r32 p_bottom  = player_next.br.y;
-	r32 p_right   = player_next.br.x;
-
-	r32 t_left    = target.tl.x;
-	r32 t_top     = target.tl.y;
-	r32 t_right   = target.br.x;
-	r32 t_bottom  = target.br.y;
-
-	b8 t_collide = !((p_left > t_right) || (p_right < t_left) || (p_top < t_bottom) || (p_bottom > t_top));
-
-	state.level_state = t_collide;
+	state.level_state = aabb_collision_rect(player_next, target);
     }
 
     // @section: teleport
@@ -1646,31 +1656,20 @@ int main(int argc, char* argv[])
 
 	Rect target = e.bounds;
 
-	r32 p_top     = player.bounds.tl.y;
-	r32 p_left    = player.bounds.tl.x;
-	r32 p_bottom  = player.bounds.br.y;
-	r32 p_right   = player.bounds.br.x;
-
-	r32 t_left    = target.tl.x;
-	r32 t_top     = target.tl.y;
-	r32 t_right   = target.br.x;
-	r32 t_bottom  = target.br.y;
-
 	if (teleporting_now) {
 	    // check if player is outside of this teleport block or not
-	    b8 t_collide = !(p_left > t_right || p_right < t_left || p_top < t_bottom || p_bottom > t_top);
+	    b8 t_collide = aabb_collision_rect(player.bounds, target);
 	    inside_teleporter_now |= t_collide;
 
 	    continue;
 	}
 	// check if player is completely inside teleport block
-	b8 t_inside = !(p_left > t_right || p_right < t_left || p_top < t_bottom || p_bottom > t_top);
-	//b8 t_inside = p_left >= t_left && p_top <= t_top && p_right <= t_right && p_bottom >= t_bottom;
-	if (!t_inside) {
+	b8 t_collide = aabb_collision_rect(player.bounds, target);
+	if (!t_collide) {
 	    continue;
 	}
 
-	inside_teleporter_now |= t_inside;
+	inside_teleporter_now |= t_collide;
 	
 	// check if player x-axis is within teleport x-axis
 	Vec2 displacement;
@@ -1699,10 +1698,15 @@ int main(int argc, char* argv[])
 	}
     }
 
-    player.bounds = rect(player.position, player.size);
-    was_colliding = collidex || collidey;
-    collidex = is_collide_x;
-    collidey = is_collide_y;
+    {
+	// @step: update player variables
+	player.bounds = rect(player.position, player.size);
+	was_colliding = collidex || collidey;
+	collidex = is_collide_x;
+	collidey = is_collide_y;
+
+	state.game_level.entities[state.player.index] = player;
+    }
 
     // @func: update_camera
     {
@@ -1730,10 +1734,68 @@ int main(int argc, char* argv[])
 	//  3. Player is outside the screen, pan to player 
 	//  (go from current camera position to player position linearly)
 
-	Vec2 player_camera_offset = player.position.v2() - renderer.cam_pos.v2();
+	// @step: player is at the edge of the screen
+	// get players visible bounds (padding around the player to consider it be visible for the camera)
+	Vec2 vis_tl = player.bounds.tl + (Vec2{-20.0f, 40.0f} * state.render_scale);
+	Vec2 vis_br = player.bounds.br + (Vec2{20.0f, -40.0f} * state.render_scale);
+	Rect vis_bounds;
+	vis_bounds.tl = vis_tl;
+	vis_bounds.br = vis_br;
+	Rect cam_bounds = state.camera_bounds;
+
+	Vec2 camera_center = Vec2{state.camera_bounds.br.x/2.0f, state.camera_bounds.tl.y/2.0f};
+	Vec2 player_camera_offset = player.position.v2() - camera_center;
+	// check if vis_bounds inside camera_bounds
+	b8 is_player_in_camera = (
+		vis_bounds.tl.x >= cam_bounds.tl.x && vis_bounds.tl.y <= cam_bounds.tl.y &&
+		vis_bounds.br.x <= cam_bounds.br.x && vis_bounds.br.y >= cam_bounds.br.y
+	);
+
+	if (!is_player_in_camera) {
+	    r32 stepx_multiplier = player_camera_offset.x < 0 ? -1.0f : 1.0f;
+	    r32 stepy_multiplier = player_camera_offset.y < 0 ? -1.0f : 1.0f;
+
+	    r32 camera_stepx = stepx_multiplier * MIN(ABS(player_camera_offset.x), camera_pan_slow.x);
+	    r32 camera_stepy = stepy_multiplier * MIN(ABS(player_camera_offset.y), camera_pan_slow.y);
+
+	    Vec2 distance_scaler;	    
+	    {
+		// @step: calculate distance scaler
+		// @note: this is to help scale how quickly the camera needs to pan
+		// this is based off of how far the player is from the camera position.
+		// The reason this is discrete instead of continuous is to give better predictability
+		// (at this stage)
+		// @note: make this continuous, so it pans smoothly. Movement is jerky at step boundaries
+		u32 dist_stepx = (u32)SDL_floorf(ABS(player_camera_offset.x) / 100);
+		u32 dist_stepy = (u32)SDL_floorf(ABS(player_camera_offset.y) / 100);
+
+		if (dist_stepx >= 0 && dist_stepx < 4) {
+		    distance_scaler.x = 8.0f;
+		} else if (dist_stepx >= 4 && dist_stepx < 8) {
+		    distance_scaler.x = 6.0f;
+		} else {
+		    distance_scaler.x = 4.0f;
+		}
+
+		if (dist_stepy >= 0 && dist_stepy < 4) {
+		    distance_scaler.y = 8.0f;
+		} else if (dist_stepy >= 4 && dist_stepy < 8) {
+		    distance_scaler.y = 6.0f;
+		} else {
+		    distance_scaler.y = 4.0f;
+		}
+	    }
+	    renderer.cam_pos.x += camera_stepx*timer.tDeltaMS/distance_scaler.x;
+	    renderer.cam_pos.y += camera_stepy*timer.tDeltaMS/distance_scaler.y;
+
+	    renderer.cam_update = 1;
+	}
+
+
 	b8 player_moving_up = p_motion_dir.y == gravity_diry*1 && !is_collide_y;
 	b8 player_moving_down = p_motion_dir.y == gravity_diry*-1 && !is_collide_y;
 
+	player_camera_offset = player.position.v2() - renderer.cam_pos.v2();
 	// @step: player moving at edges of the screen
 	if (player_camera_offset.x <= cam_lt_limit.x && p_motion_dir.x == -1) {
 	    renderer.cam_pos.x += pd_1.x;
@@ -1749,13 +1811,15 @@ int main(int argc, char* argv[])
 	    renderer.cam_update = 1;
 	}
 	if (player_camera_offset.y <= cam_rb_limit.y && 
-		player_moving_down) 
-	{
+		player_moving_down) {
 	    renderer.cam_pos.y += pd_1.y;
 	    renderer.cam_update = 1;
 	}
 
-	// update camera
+    }
+
+    {
+	// @step: update camera variables
 	if (renderer.cam_update == true) {
 	    renderer.cam_view = camera_create4m(
 		    renderer.cam_pos,
@@ -1763,12 +1827,15 @@ int main(int argc, char* argv[])
 		    renderer.preset_up_dir
 		    );
 	    renderer.cam_update = false;
+	    state.camera_bounds = rect(renderer.cam_pos, state.screen_size);
+	    {
+		// @step: calculate camera bounds
+		Vec2 cam_lt = Vec2{renderer.cam_pos.x, renderer.cam_pos.y + state.screen_size.y};
+		Vec2 cam_rb = Vec2{renderer.cam_pos.x + state.screen_size.x, renderer.cam_pos.y};
+		state.camera_bounds.tl = cam_lt;
+		state.camera_bounds.br = cam_rb;
+	    }
 	}
-    }
-
-    {
-	// update player entity
-	state.game_level.entities[state.player.index] = player;
     }
     
     // output
@@ -1875,12 +1942,12 @@ int main(int argc, char* argv[])
                    28.0f*render_scale,                     // size
                    Vec3{0.0f, 0.0f, 0.0f});   // color
     
-    sprintf(fmt_buffer, "inside_teleporter: %d\nteleporting: %d", state.inside_teleporter, state.teleporting);
-    gl_render_text(&renderer,
-                   fmt_buffer,
-                   Vec2{900.0f, 190.0f},      // position
-                   28.0f*render_scale,                     // size
-                   Vec3{0.0f, 0.0f, 0.0f});   // color
+    //sprintf(fmt_buffer, "inside_teleporter: %d\nteleporting: %d", state.inside_teleporter, state.teleporting);
+    //gl_render_text(&renderer,
+    //               fmt_buffer,
+    //               Vec2{900.0f, 190.0f},      // position
+    //               28.0f*render_scale,                     // size
+    //               Vec3{0.0f, 0.0f, 0.0f});   // color
 
     SDL_GL_SwapWindow(window);
 

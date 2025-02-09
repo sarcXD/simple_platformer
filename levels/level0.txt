@@ -11,7 +11,7 @@
 # == gameplay elements ==
 # gravity inverter
 #   type    posx    posy    sizex   sizey
-    3	    650	    60	    1	    1
+#    3	    650	    60	    1	    1
 # teleporter
 #   type    posx    posy    sizex   sizey   id	    link_id
     4 	    800	    90	    1	    2	    50	    51

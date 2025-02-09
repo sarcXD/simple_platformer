@@ -8,7 +8,7 @@
 #define TO_RAD(x) ((x) * PI / 180.0f)
 #define TO_DEG(x) ((x) * 180.0f / PI)
 #define ABS(x) ((x) < 0 ? (-(x)) : (x))
-#define MIN(x,y) ((x) < (y) ? (y) : (x))
+#define MIN(x,y) ((x) < (y) ? (x) : (y))
 
 // @todo: 
 // - make everything simd
@@ -173,6 +173,15 @@ union Vec2 {
     Vec2 res;
     res.x = this->x / scaler;
     res.y = this->y / scaler;
+
+    return res;
+  }
+
+  Vec2 operator/(Vec2 v) {
+    SDL_assert(v.x != 0 && v.y != 0);
+    Vec2 res;
+    res.x = this->x / v.x;
+    res.y = this->y / v.y;
 
     return res;
   }
