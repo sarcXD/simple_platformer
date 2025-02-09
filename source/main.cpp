@@ -304,7 +304,7 @@ Entity get_entity_by_id(GameState state, u32 id) {
 }
 
 void load_level(GameState *state, Arena *level_arena, Str256 level_path) {
-    // @step: initialise
+    // @step: initialise level state variables
     arena_clear(level_arena);
     memset(&state->game_level, 0, sizeof(Level));
     state->level_state = 0;
@@ -345,7 +345,12 @@ void load_level(GameState *state, Arena *level_arena, Str256 level_path) {
 	    continue;
 	}
 
-	if (ele == ' ' || ele == '\n') {
+	if (ele == '\t' || ele == ' ' || ele == '\n') {
+	    if (level_property.size == 0) {
+		// @note: this will help ignore ' ', '\t', '\n' characters
+		// allowing us to type those in the file for better readability
+		continue;
+	    }
 	    switch (prop_flag) {
 		case 0: {
 		    state->game_level.version = strtol(level_property.buffer, NULL, 16);
@@ -1104,13 +1109,14 @@ int main(int argc, char* argv[])
   );
 
   // @section: gameplay variables
+  r32 motion_scale = 2.0f*render_scale;
   r32 gravity_diry = 1.0f;
-  r32 motion_scale = 2.0f;
   r32 fall_accelx = 3.0f*motion_scale;
   r32 move_accelx = 4.0f*motion_scale;
   r32 freefall_accel = -11.8f*motion_scale;
   r32 jump_force = 6.5f*motion_scale;
   r32 effective_force = 0.0f;
+  Vec2 camera_pan_slow = Vec2{2.0f, 2.0f}*motion_scale;
 
   Vec2 player_velocity = Vec2{0.0f, 0.0f};
   Vec2 p_move_dir = Vec2{0.0f, 0.0f};
@@ -1592,15 +1598,9 @@ int main(int argc, char* argv[])
     }
 
     if (!is_collide_x) {
-      if (p_motion_dir.x != 0.0f) {
-        renderer.cam_update = true;
-      }
       player.position.x = next_player_position.x;
     }
     if (!is_collide_y) {
-      if (p_motion_dir.y != 0.0f) {
-        renderer.cam_update = true;
-      }
       player.position.y = next_player_position.y;
     }
 
@@ -1705,34 +1705,65 @@ int main(int argc, char* argv[])
     collidey = is_collide_y;
 
     // @func: update_camera
-    if (renderer.cam_update == true) {
-      renderer.cam_update = false;
-      Vec2 player_screen = player.position.v2() - renderer.cam_pos.v2();
+    {
+	// camera movement and handling
+	// Cases:
+	// - A new level loads, the camera position needs to be on the player 
+	// (part of level loading) [Focus on Player]
+	// - Player is moving and camera needs to follow
+	// - Player has stopped moving and camera needs to slowly adjust (linearly)
+	// - Player teleports, camera needs to move to the player:
+	//  - if player is within view camera needs to slowly adjust the player, 
+	//  and pan linearly until player is in level focus
+	//  - if player is out of camera view, jump 
+	//  (linearly but slightly faster) to the player
+	// - If player is outside, pan quickly (linearly) to player
+	// - If player is at the boundary of a level, 
+	// respect the level boundary and do not center the player. 
+	//  Pan camera, up until the edge of the level boundary. 
+	//  Do no move the camera beyond the level boundary.
+	//
+	//  Based off of these cases, this is the behavior I can see:
+	//  1. Player is moving at the edges of the screen, follow.
+	//  2. Player is stopped, pan slowly until player is in the focus region 
+	//  (need to define focus region)
+	//  3. Player is outside the screen, pan to player 
+	//  (go from current camera position to player position linearly)
 
-      if (player_screen.x <= cam_lt_limit.x && p_motion_dir.x == -1) {
-        renderer.cam_pos.x += pd_1.x;
-        renderer.cam_update = true;
-      }
-      if (player_screen.y >= cam_lt_limit.y && p_motion_dir.y == 1) {
-        renderer.cam_pos.y += pd_1.y;
-        renderer.cam_update = true;
-      }
-      if (player_screen.x >= cam_rb_limit.x && p_motion_dir.x == 1) {
-        renderer.cam_pos.x += pd_1.x;
-        renderer.cam_update = true;
-      }
-      if (player_screen.y <= cam_rb_limit.y && p_motion_dir.y == -1) {
-        renderer.cam_pos.y += pd_1.y;
-        renderer.cam_update = true;
-      }
-      if (renderer.cam_update == true) {
-        renderer.cam_view = camera_create4m(
-          renderer.cam_pos, 
-          add3v(renderer.cam_pos, renderer.cam_look), 
-          renderer.preset_up_dir
-        );
-        renderer.cam_update = false;
-      }
+	Vec2 player_camera_offset = player.position.v2() - renderer.cam_pos.v2();
+	b8 player_moving_up = p_motion_dir.y == gravity_diry*1 && !is_collide_y;
+	b8 player_moving_down = p_motion_dir.y == gravity_diry*-1 && !is_collide_y;
+
+	// @step: player moving at edges of the screen
+	if (player_camera_offset.x <= cam_lt_limit.x && p_motion_dir.x == -1) {
+	    renderer.cam_pos.x += pd_1.x;
+	    renderer.cam_update = 1;
+	}
+	if (player_camera_offset.y >= cam_lt_limit.y && 
+		player_moving_up) {
+	    renderer.cam_pos.y += pd_1.y;
+	    renderer.cam_update = 1;
+	}
+	if (player_camera_offset.x >= cam_rb_limit.x && p_motion_dir.x == 1) {
+	    renderer.cam_pos.x += pd_1.x;
+	    renderer.cam_update = 1;
+	}
+	if (player_camera_offset.y <= cam_rb_limit.y && 
+		player_moving_down) 
+	{
+	    renderer.cam_pos.y += pd_1.y;
+	    renderer.cam_update = 1;
+	}
+
+	// update camera
+	if (renderer.cam_update == true) {
+	    renderer.cam_view = camera_create4m(
+		    renderer.cam_pos,
+		    add3v(renderer.cam_pos, renderer.cam_look),
+		    renderer.preset_up_dir
+		    );
+	    renderer.cam_update = false;
+	}
     }
 
     {
