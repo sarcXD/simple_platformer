@@ -111,8 +111,8 @@ struct TextState {
 #include "array/array.cpp"
 
 struct Rect {
-  Vec2 tl;
-  Vec2 br;
+  Vec2 lb;
+  Vec2 rt;
 };
 
 #define PLAYER_Z -1.0f
@@ -276,25 +276,25 @@ struct GameState {
 Rect rect(Vec3 position, Vec2 size) {
   Rect r = {0};
 
-  r.tl.x = position.x - size.x;
-  r.tl.y = position.y + size.y;
+  r.lb.x = position.x - size.x;
+  r.lb.y = position.y - size.y;
 
-  r.br.x = position.x + size.x;
-  r.br.y = position.y - size.y;
+  r.rt.x = position.x + size.x;
+  r.rt.y = position.y + size.y;
 
   return r;
 }
 
 b8 aabb_collision_rect(Rect a, Rect b) {
-    r32 a_left = a.tl.x;
-    r32 a_top = a.tl.y;
-    r32 a_right = a.br.x;
-    r32 a_bottom = a.br.y;
+    r32 a_left = a.lb.x;
+    r32 a_bottom = a.lb.y;
+    r32 a_right = a.rt.x;
+    r32 a_top = a.rt.y;
 
-    r32 b_left = b.tl.x;
-    r32 b_top = b.tl.y;
-    r32 b_right = b.br.x;
-    r32 b_bottom = b.br.y;
+    r32 b_left = b.lb.x;
+    r32 b_bottom = b.lb.y;
+    r32 b_right = b.rt.x;
+    r32 b_top = b.rt.y;
 
     return !(
 	    a_left > b_right || a_right < b_left ||
@@ -1158,10 +1158,10 @@ int main(int argc, char* argv[])
   // br -> rb
   {
       // @step: calculate_camera_bounds
-      Vec2 cam_lt = Vec2{renderer.cam_pos.x, renderer.cam_pos.y + state.screen_size.y};
-      Vec2 cam_rb = Vec2{renderer.cam_pos.x + state.screen_size.x, renderer.cam_pos.y};
-      state.camera_bounds.tl = cam_lt;
-      state.camera_bounds.br = cam_rb;
+      Vec2 cam_lb = Vec2{renderer.cam_pos.x, renderer.cam_pos.y};
+      Vec2 cam_rt = Vec2{renderer.cam_pos.x + state.screen_size.x, renderer.cam_pos.y + state.screen_size.y};
+      state.camera_bounds.lb = cam_lb;
+      state.camera_bounds.rt = cam_rt;
   }
 
   // @section: level elements
@@ -1599,20 +1599,20 @@ int main(int argc, char* argv[])
 	b8 t_collide_bottom = 0;
 	b8 t_collide_top = 0;
 
-	r32 prev_top    = player.bounds.tl.y;
-	r32 prev_left   = player.bounds.tl.x;
-	r32 prev_bottom = player.bounds.br.y;
-	r32 prev_right  = player.bounds.br.x;
+	r32 prev_left   = player.bounds.lb.x;
+	r32 prev_bottom = player.bounds.lb.y;
+	r32 prev_right  = player.bounds.rt.x;
+	r32 prev_top    = player.bounds.rt.y;
 
-	r32 p_top     = player_next.tl.y;
-	r32 p_left    = player_next.tl.x;
-	r32 p_bottom  = player_next.br.y;
-	r32 p_right   = player_next.br.x;
+	r32 p_left    = player_next.lb.x;
+	r32 p_bottom  = player_next.lb.y;
+	r32 p_right   = player_next.rt.x;
+	r32 p_top     = player_next.rt.y;
 
-	r32 t_left    = target.tl.x;
-	r32 t_top     = target.tl.y;
-	r32 t_right   = target.br.x;
-	r32 t_bottom  = target.br.y;
+	r32 t_left    = target.lb.x;
+	r32 t_bottom  = target.lb.y;
+	r32 t_right   = target.rt.x;
+	r32 t_top     = target.rt.y;
 
 	b8 prev_collide_x = !(prev_left > t_right || prev_right < t_left);
 	b8 new_collide_target_top = (p_bottom < t_top && p_top > t_top);
@@ -1773,19 +1773,19 @@ int main(int argc, char* argv[])
 
 	// @step: player is at the edge of the screen
 	// get players visible bounds (padding around the player to consider it be visible for the camera)
-	Vec2 vis_tl = player.bounds.tl + (Vec2{-20.0f, 40.0f} * state.render_scale);
-	Vec2 vis_br = player.bounds.br + (Vec2{20.0f, -40.0f} * state.render_scale);
+	Vec2 vis_lb = player.bounds.lb - (Vec2{20.0f, 40.0f} * state.render_scale);
+	Vec2 vis_rt = player.bounds.rt + (Vec2{20.0f, 40.0f} * state.render_scale);
 	Rect vis_bounds;
-	vis_bounds.tl = vis_tl;
-	vis_bounds.br = vis_br;
+	vis_bounds.lb = vis_lb;
+	vis_bounds.rt = vis_rt;
 	Rect cam_bounds = state.camera_bounds;
 
-	Vec2 camera_center = Vec2{state.camera_bounds.br.x/2.0f, state.camera_bounds.tl.y/2.0f};
+	Vec2 camera_center = Vec2{state.camera_bounds.rt.x/2.0f, state.camera_bounds.rt.y/2.0f};
 	Vec2 player_camera_offset = player.position.v2() - camera_center;
 	// check if vis_bounds inside camera_bounds
 	b8 is_player_in_camera = (
-		vis_bounds.tl.x >= cam_bounds.tl.x && vis_bounds.tl.y <= cam_bounds.tl.y &&
-		vis_bounds.br.x <= cam_bounds.br.x && vis_bounds.br.y >= cam_bounds.br.y
+		vis_bounds.lb.x >= cam_bounds.lb.x && vis_bounds.lb.y >= cam_bounds.lb.y &&
+		vis_bounds.rt.x <= cam_bounds.rt.x && vis_bounds.rt.y <= cam_bounds.rt.y
 	);
 
 	if (!is_player_in_camera) {
@@ -1866,10 +1866,10 @@ int main(int argc, char* argv[])
 	    renderer.cam_update = false;
 	    {
 		// @step: calculate_camera_bounds
-		Vec2 cam_lt = Vec2{renderer.cam_pos.x, renderer.cam_pos.y + state.screen_size.y};
-		Vec2 cam_rb = Vec2{renderer.cam_pos.x + state.screen_size.x, renderer.cam_pos.y};
-		state.camera_bounds.tl = cam_lt;
-		state.camera_bounds.br = cam_rb;
+		Vec2 cam_lb = Vec2{renderer.cam_pos.x, renderer.cam_pos.y};
+		Vec2 cam_rt = Vec2{renderer.cam_pos.x + state.screen_size.x, renderer.cam_pos.y + state.screen_size.y};
+		state.camera_bounds.lb = cam_lb;
+		state.camera_bounds.rt = cam_rt;
 	    }
 	}
     }
@@ -1895,25 +1895,6 @@ int main(int argc, char* argv[])
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     
     // @section: rendering
-    // render_player
-#if old_drawing
-    gl_draw_colored_quad_optimized(
-	    &renderer,
-	    state.player.position,
-	    state.player.size,
-	    Vec3{1.0f, 0.0f, 0.0f});
-    
-    // render_goal
-    {
-	Entity goal = state.game_level.entities[state.goal.index];
-	gl_draw_colored_quad_optimized(
-		&renderer,
-		Vec3{goal.position.x, goal.position.y, -3.0f},
-		goal.size,
-		Vec3{ 0.93f, 0.7f, 0.27f });
-    }
-#endif
-
     // render_entities
     for (int i = 0; i < state.game_level.entity_count; i++) {
 	Entity entity = state.game_level.entities[i];
