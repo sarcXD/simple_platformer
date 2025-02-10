@@ -38,6 +38,8 @@ BLOCKED:
 - Audio: figure out what the correct audio sound for jumping will be.
 
 TODO:
+- Fix camera jerk on level load
+- Make camera pan a continuous function, discrete steps are too jerky.
 - Update camera follower for centering player in view (with limits) after
   a few seconds (maybe like 2 seconds)
 - Implement Broad Phase Collision for efficient collision handling, let's see

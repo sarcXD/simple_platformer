@@ -261,7 +261,7 @@ void gl_cq_flush(GLRenderer* renderer) {
     GL_ARRAY_BUFFER, 
     0, 
     renderer->cq_pos_batch.capacity*sizeof(r32), 
-    renderer->cq_pos_batch.buffer
+    (void*)renderer->cq_pos_batch.buffer
   );
 
   // color batch
@@ -278,4 +278,91 @@ void gl_cq_flush(GLRenderer* renderer) {
   array_clear(&renderer->cq_pos_batch);
   array_clear(&renderer->cq_color_batch);
   renderer->cq_batch_count = 0;
+}
+
+void gl_setup_line(GLRenderer* renderer, u32 sp) {
+    glGenVertexArrays(1, &renderer->line_vao);
+    glGenBuffers(1, &renderer->line_vbo);
+
+    glBindVertexArray(renderer->line_vao);
+    glBindBuffer(GL_ARRAY_BUFFER, renderer->line_vbo);
+    glBufferData(
+	    GL_ARRAY_BUFFER, (
+		renderer->line_pos_batch.capacity + 
+		renderer->line_color_batch.capacity
+		) * sizeof(r32), NULL, GL_DYNAMIC_DRAW
+	    );
+
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 4 * sizeof(r32), (void*)0);
+
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(
+	    1, 3, GL_FLOAT, GL_FALSE, 
+	    3 * sizeof(r32), (void*)(
+		renderer->line_pos_batch.capacity*sizeof(r32)
+		)
+	    );
+
+    glBindVertexArray(0);
+}
+
+void gl_draw_line(
+	GLRenderer *renderer,
+	Vec3 start,
+	Vec3 end,
+	Vec3 color
+	) {
+
+    Vec4 vertices[2] = {
+	Vec4{start.x, start.y, start.z, 1.0f},
+	Vec4{end.x, end.y, end.z, 1.0f}
+    };
+
+    array_insert(&renderer->line_pos_batch, vertices[0].data, 4);
+    array_insert(&renderer->line_pos_batch, vertices[1].data, 4);
+    array_insert(&renderer->line_color_batch, color.data, 3);
+    array_insert(&renderer->line_color_batch, color.data, 3);
+
+    renderer->line_batch_count++;
+    if(renderer->line_batch_count == BATCH_SIZE) {
+	gl_line_flush(renderer);
+    }
+}
+
+void gl_line_flush(GLRenderer *renderer) {
+    glUseProgram(renderer->line_sp);
+    glEnable(GL_DEPTH_TEST);
+
+    glUniformMatrix4fv(
+	    glGetUniformLocation(renderer->line_sp, "View"),
+	    1, GL_FALSE, (renderer->cam_view).buffer
+	    );
+    glUniformMatrix4fv(
+	    glGetUniformLocation(renderer->line_sp, "Projection"),
+	    1, GL_FALSE, (renderer->cam_proj).buffer
+	    );
+    glBindBuffer(GL_ARRAY_BUFFER, renderer->line_vbo);
+
+    // fill batch data
+    // position batch
+    glBufferSubData(
+	    GL_ARRAY_BUFFER,
+	    0,
+	    renderer->line_pos_batch.capacity*sizeof(r32),
+	    (void*)renderer->line_pos_batch.buffer
+	    );
+    glBufferSubData(
+	    GL_ARRAY_BUFFER,
+	    renderer->line_pos_batch.capacity*sizeof(r32),
+	    renderer->line_color_batch.capacity*sizeof(r32),
+	    (void*)renderer->line_color_batch.buffer
+	    );
+
+    glBindVertexArray(renderer->line_vao);
+    glDrawArrays(GL_LINES, 0, renderer->line_batch_count*2);
+
+    array_clear(&renderer->line_pos_batch);
+    array_clear(&renderer->line_color_batch);
+    renderer->line_batch_count = 0;
 }

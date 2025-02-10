@@ -191,8 +191,14 @@ struct GLRenderer {
   u32 cq_batch_vbo;
   u32 cq_batch_count;
   r32_array cq_pos_batch;
-  r32_array cq_mvp_batch;
   r32_array cq_color_batch;
+  // Batched line
+  u32 line_sp;
+  u32 line_vao;
+  u32 line_vbo;
+  u32 line_batch_count;
+  r32_array line_pos_batch;
+  r32_array line_color_batch;
 
   // ui text 
   TextState ui_text;
@@ -748,9 +754,16 @@ int main(int argc, char* argv[])
   size_t mem_size = GB(1);
   void* batch_memory = calloc(mem_size, sizeof(r32));
   Arena batch_arena;
+  // quad batch buffers
   arena_init(&batch_arena, (unsigned char*)batch_memory, mem_size*sizeof(r32));
   array_init(&batch_arena, &(renderer.cq_pos_batch), pos_ele_count);
   array_init(&batch_arena, &(renderer.cq_color_batch), color_ele_count);
+
+  // line batch buffers
+  u32 line_pos_ele_count = BATCH_SIZE * 4 * 2;
+  u32 line_color_ele_count = BATCH_SIZE * 3 * 2;
+  array_init(&batch_arena, &(renderer.line_pos_batch), line_pos_ele_count);
+  array_init(&batch_arena, &(renderer.line_color_batch), line_color_ele_count);
 
 
   u32 quad_sp = gl_shader_program_from_path(
@@ -771,6 +784,9 @@ int main(int argc, char* argv[])
 
   renderer.cq_batch_sp = cq_batch_sp;
   gl_setup_colored_quad_optimized(&renderer, cq_batch_sp);
+
+  renderer.line_sp = cq_batch_sp;
+  gl_setup_line(&renderer, cq_batch_sp);
   
   
   r32 render_scale = 1.0f; //(r32)scr_width / (r32)base_scr_width;
@@ -1609,6 +1625,15 @@ int main(int argc, char* argv[])
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     
     // @section: rendering
+    // draw line
+    gl_draw_line(
+	    &renderer, 
+	    Vec3{0.0f, 500.0f, -1.0f}, 
+	    Vec3{1000.0f, 500.0f, -1.0f},
+	    Vec3{0.0f, 0.0f, 0.0f});
+
+    gl_line_flush(&renderer);
+
     // render_entities
     for (int i = 0; i < state.game_level.entity_count; i++) {
 	Entity entity = state.game_level.entities[i];
