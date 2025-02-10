@@ -27,9 +27,12 @@ DONE:
 - Better level format, not having to specify the level element count 
 in the level file.
 - Added invert gravity mechanic
+- teleport block mechanic
 
 DOING:
-- teleport block mechanic
+- improve level design features
+    * add lines for easier distinction
+    * get world position via mouse
 
 BLOCKED:
 - Audio: figure out what the correct audio sound for jumping will be.
@@ -37,6 +40,5 @@ BLOCKED:
 TODO:
 - Update camera follower for centering player in view (with limits) after
   a few seconds (maybe like 2 seconds)
-- make movement grid based? let's see but probably not
 - Implement Broad Phase Collision for efficient collision handling, let's see
 - vectorize math library with simd
