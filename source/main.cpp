@@ -1180,7 +1180,16 @@ int main(int argc, char* argv[])
   Str256 _level_name = str256(level_names[state.level_index]);
   Str256 level_path = base;
   str_push256(&level_path, _level_name);
-  load_level(&state, &level_arena, level_path);
+  {
+      // setup level state
+      load_level(&state, &level_arena, level_path);
+      // put camera on player
+      Entity player = state.game_level.entities[state.player.index];
+      renderer.cam_pos.x = player.position.x;
+      renderer.cam_pos.y = player.position.y;
+      effective_force = 0.0f;
+      player_velocity = Vec2{0.0f, 0.0f};
+  }
 
   // gameplay camera movement stuff
   Vec2 cam_lt_limit = {0};
@@ -1290,8 +1299,16 @@ int main(int argc, char* argv[])
 	    // @todo: fix this janky manual camera movement 
 	    if (ev.key.keysym.sym == SDLK_F5)
 	    {
-		load_level(&state, &level_arena, level_path);
-		renderer.cam_update = true;
+		{
+		    // setup level state
+		    load_level(&state, &level_arena, level_path);
+		    // put camera on player
+		    Entity player = state.game_level.entities[state.player.index];
+		    renderer.cam_pos.x = player.position.x;
+		    renderer.cam_pos.y = player.position.y;
+		    effective_force = 0.0f;
+		    player_velocity = Vec2{0.0f, 0.0f};
+		}
 	    }
 #if CAM_MANUAL_MOVE
 	    if (ev.key.keysym.sym == SDLK_LEFT)
@@ -1354,7 +1371,16 @@ int main(int argc, char* argv[])
 	Str256 _level_name = str256(level_names[state.level_index]);
 	Str256 level_path = base;
 	str_push256(&level_path, _level_name);
-	load_level(&state, &level_arena, level_path);
+	{
+	    // setup level state
+	    load_level(&state, &level_arena, level_path);
+	    // put camera on player
+	    Entity player = state.game_level.entities[state.player.index];
+	    renderer.cam_pos.x = player.position.x;
+	    renderer.cam_pos.y = player.position.y;
+	    effective_force = 0.0f;
+	    player_velocity = Vec2{0.0f, 0.0f};
+	}
     }
     
     // @section: input processing
