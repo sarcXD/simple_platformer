@@ -113,8 +113,6 @@ struct TextState {
 struct Rect {
   Vec2 tl;
   Vec2 br;
-  Vec2 size;
-  Vec3 position;
 };
 
 #define PLAYER_Z -1.0f
