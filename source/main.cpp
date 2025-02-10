@@ -272,6 +272,7 @@ struct GameState {
   b8 flip_gravity;
   b8 inside_teleporter;
   b8 teleporting;
+  r64 gravity_flip_timer;
 };
 
 Rect rect(Vec3 position, Vec2 size) {
@@ -1158,7 +1159,7 @@ int main(int argc, char* argv[])
   // tl -> lt
   // br -> rb
   {
-      // @step: calculate camera bounds
+      // @step: calculate_camera_bounds
       Vec2 cam_lt = Vec2{renderer.cam_pos.x, renderer.cam_pos.y + state.screen_size.y};
       Vec2 cam_rb = Vec2{renderer.cam_pos.x + state.screen_size.x, renderer.cam_pos.y};
       state.camera_bounds.tl = cam_lt;
@@ -1611,8 +1612,17 @@ int main(int argc, char* argv[])
 	} else if (t_collide_bottom) {
 	  player.position.y += (t_bottom - prev_top - 0.1f);
 	}
+
 	if (e.type == INVERT_GRAVITY && (t_collide_x || t_collide_top || t_collide_bottom)) {
-	    state.flip_gravity = 1;
+	    // @note: gravity inverter mechanic
+	    // 1. touch block, gravity flips
+	    // 2. for 2 second, after gravity is flipped, gravity will not be flipped 
+	    // (this will collapse various cases where the player is trying to reflip gravity, 
+	    // but immediate contact after flipping makes this awkward and infeasible)
+	    if (state.gravity_flip_timer <= 0) {
+		state.gravity_flip_timer = 1000.0f;
+		state.flip_gravity = 1;
+	    }
 	}
 
 	is_collide_x = is_collide_x || t_collide_x;
@@ -1696,6 +1706,9 @@ int main(int argc, char* argv[])
 	    player.position.x = teleported_position.x;
 	    player.position.y = teleported_position.y;
 	}
+    }
+    {
+	state.gravity_flip_timer = MAX(state.gravity_flip_timer - timer.tDeltaMS, 0.0f);
     }
 
     {
@@ -1827,9 +1840,8 @@ int main(int argc, char* argv[])
 		    renderer.preset_up_dir
 		    );
 	    renderer.cam_update = false;
-	    state.camera_bounds = rect(renderer.cam_pos, state.screen_size);
 	    {
-		// @step: calculate camera bounds
+		// @step: calculate_camera_bounds
 		Vec2 cam_lt = Vec2{renderer.cam_pos.x, renderer.cam_pos.y + state.screen_size.y};
 		Vec2 cam_rb = Vec2{renderer.cam_pos.x + state.screen_size.x, renderer.cam_pos.y};
 		state.camera_bounds.tl = cam_lt;

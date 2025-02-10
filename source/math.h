@@ -9,6 +9,7 @@
 #define TO_DEG(x) ((x) * 180.0f / PI)
 #define ABS(x) ((x) < 0 ? (-(x)) : (x))
 #define MIN(x,y) ((x) < (y) ? (x) : (y))
+#define MAX(x,y) ((x) > (y) ? (x) : (y))
 
 // @todo: 
 // - make everything simd
