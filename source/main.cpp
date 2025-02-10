@@ -276,11 +276,11 @@ struct GameState {
 Rect rect(Vec3 position, Vec2 size) {
   Rect r = {0};
 
-  r.lb.x = position.x - size.x;
-  r.lb.y = position.y - size.y;
+  r.lb.x = position.x;
+  r.lb.y = position.y;
 
-  r.rt.x = position.x + size.x;
-  r.rt.y = position.y + size.y;
+  r.rt.x = position.x + 2.0f*size.x;
+  r.rt.y = position.y + 2.0f*size.y;
 
   return r;
 }
@@ -667,7 +667,7 @@ void gl_draw_colored_quad_optimized(
   Mat4 scale = scaling_matrix4m(size.x, size.y, 0.0f);
   model = multiply4m(scale, model);
   // setting quad position
-  Mat4 translation = translation_matrix4m(position.x, position.y, position.z);
+  Mat4 translation = translation_matrix4m(position.x + size.x, position.y + size.y, position.z);
   model = multiply4m(translation, model);
 
   Vec4 model_pos;
