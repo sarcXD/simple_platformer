@@ -28,17 +28,19 @@ DONE:
 in the level file.
 - Added invert gravity mechanic
 - teleport block mechanic
-
-DOING:
 - improve level design features
     * add lines for easier distinction
     * get world position via mouse
+- setup ui camera
+
+DOING:
+- Fix camera jerk on level load
 
 BLOCKED:
 - Audio: figure out what the correct audio sound for jumping will be.
 
 TODO:
-- Fix camera jerk on level load
+- Refactor level loading functions
 - Make camera pan a continuous function, discrete steps are too jerky.
 - Update camera follower for centering player in view (with limits) after
   a few seconds (maybe like 2 seconds)

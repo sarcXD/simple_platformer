@@ -51,12 +51,12 @@ u32 clampi(u32 x, u32 bottom, u32 top)
 // ==== Vector Math ====
 union IVec2 {
   struct {
-    u32 x;
-    u32 y;
+    s32 x;
+    s32 y;
   };
-  u32 data[2];
+  s32 data[2];
 
-  IVec2 operator+(u32 scaler) {
+  IVec2 operator+(s32 scaler) {
     IVec2 res;
     res.x = this->x + scaler;
     res.y = this->y + scaler;
@@ -72,7 +72,7 @@ union IVec2 {
     return res;
   }
 
-  IVec2 operator-(u32 scaler) {
+  IVec2 operator-(s32 scaler) {
     IVec2 res;
     res.x = this->x - scaler;
     res.y = this->y - scaler;
@@ -88,7 +88,7 @@ union IVec2 {
     return res;
   }
 
-  IVec2 operator*(u32 scaler) {
+  IVec2 operator*(s32 scaler) {
     IVec2 res;
     res.x = this->x * scaler;
     res.y = this->y * scaler;
@@ -104,7 +104,7 @@ union IVec2 {
     return res;
   }
 
-  IVec2 operator/(u32 scaler) {
+  IVec2 operator/(s32 scaler) {
     SDL_assert(scaler != 0);
     IVec2 res;
     res.x = this->x / scaler;

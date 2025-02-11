@@ -179,12 +179,18 @@ struct GLRenderer {
   u32 cq_sp;
   u32 cq_vao;
   // camera
-  b8   cam_update;
   Vec3 preset_up_dir;
+  Mat4 cam_proj;
+  // ui camera
+  b8 ui_cam_update;
+  Vec3 ui_cam_pos;
+  Vec3 ui_cam_look;
+  Mat4 ui_cam_view;
+  // game camera
+  b8   cam_update;
   Vec3 cam_pos;
   Vec3 cam_look;
   Mat4 cam_view;
-  Mat4 cam_proj;
   // Batched cq
   // batching buffer
   u32 cq_batch_sp;
@@ -576,10 +582,13 @@ void gl_render_text(GLRenderer *renderer, char* text, Vec2 position, r32 size, V
   glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
   
   glUseProgram(renderer->ui_text.sp);
-  glUniformMatrix4fv(glGetUniformLocation(renderer->ui_text.sp, "View"), 
-                     1, GL_FALSE, renderer->cam_view.buffer);
-  glUniformMatrix4fv(glGetUniformLocation(renderer->ui_text.sp, "Projection"), 
-                     1, GL_FALSE, renderer->cam_proj.buffer);
+  if (renderer->ui_cam_update) {
+      glUniformMatrix4fv(glGetUniformLocation(renderer->ui_text.sp, "View"), 
+			 1, GL_FALSE, renderer->ui_cam_view.buffer);
+      glUniformMatrix4fv(glGetUniformLocation(renderer->ui_text.sp, "Projection"), 
+			 1, GL_FALSE, renderer->cam_proj.buffer);
+      renderer->ui_cam_update = 0;
+  }
   glUniform3fv(glGetUniformLocation(renderer->ui_text.sp, "TextColor"), 1, color.data);
   glBindVertexArray(renderer->ui_text.vao);
   glBindTexture(GL_TEXTURE_2D_ARRAY, renderer->ui_text.texture_atlas_id);
@@ -852,6 +861,11 @@ int main(int argc, char* argv[])
     0.0f, (r32)scr_height*render_scale,
     0.1f, 15.0f
   );
+  // fixed_screen_camera
+  renderer.ui_cam_update = 1;
+  renderer.ui_cam_pos = renderer.cam_pos;
+  renderer.ui_cam_look = renderer.cam_look;
+  renderer.ui_cam_view = renderer.cam_view;
 
   // @section: gameplay variables
   r32 motion_scale = 2.0f;
@@ -918,6 +932,7 @@ int main(int argc, char* argv[])
       effective_force = 0.0f;
       player_velocity = Vec2{0.0f, 0.0f};
       gravity_diry = 1.0f;
+      renderer.cam_update = 1;
   }
 
   // gameplay camera movement stuff
@@ -988,6 +1003,10 @@ int main(int argc, char* argv[])
     controller.jump = 0;
     controller.toggle_gravity = 0;
 
+
+    IVec2 mouse_position;
+    IVec2 mouse_position_world;
+    IVec2 mouse_position_clamped;
     SDL_Event ev;
     while(SDL_PollEvent(&ev))
     {
@@ -997,6 +1016,19 @@ int main(int argc, char* argv[])
           {
             game_running = 0;
           } break;
+	case (SDL_MOUSEMOTION):
+	  {
+	      SDL_GetMouseState(&mouse_position.x, &mouse_position.y);
+	      // flip mouse y to map it Y at Top -> Y at Bottom (like in maths)
+	      mouse_position.y = scr_height*state.render_scale.y - mouse_position.y;
+	      // get mouse world position
+	      mouse_position_world.x = mouse_position.x + (s32)renderer.cam_pos.x;
+	      mouse_position_world.y = mouse_position.y + (s32)renderer.cam_pos.y;
+	      // clamp mouse position based off of the grids we draw (this will make level object placement easier)
+	      mouse_position_clamped.x = mouse_position_world.x - (mouse_position_world.x % (s32)(atom_size.x));
+	      mouse_position_clamped.y = mouse_position_world.y - (mouse_position_world.y % (s32)(atom_size.y));
+
+	  } break;
         case (SDL_KEYDOWN):
           {
             if (ev.key.keysym.sym == SDLK_w)
@@ -1506,8 +1538,8 @@ int main(int argc, char* argv[])
 
 	// @step: player is at the edge of the screen
 	// get players visible bounds (padding around the player to consider it be visible for the camera)
-	Vec2 vis_lb = player.bounds.lb - (Vec2{40.0f, 60.0f} * state.render_scale);
-	Vec2 vis_rt = player.bounds.rt + (Vec2{40.0f, 60.0f} * state.render_scale);
+	Vec2 vis_lb = player.bounds.lb - (Vec2{120.0f, 60.0f} * state.render_scale);
+	Vec2 vis_rt = player.bounds.rt + (Vec2{120.0f, 60.0f} * state.render_scale);
 	Rect vis_bounds;
 	vis_bounds.lb = vis_lb;
 	vis_bounds.rt = vis_rt;
@@ -1629,7 +1661,6 @@ int main(int argc, char* argv[])
     
     // @section: rendering
     // @step: render draw lines
-#if 1
     {
 	// @step: draw vertical lines
 	s32 line_index = (s32)state.camera_bounds.lb.x/atom_size.x;
@@ -1682,7 +1713,6 @@ int main(int argc, char* argv[])
 	}
 	gl_line_flush(&renderer);
     }
-#endif
 
     // render_entities
     for (int i = 0; i < state.game_level.entity_count; i++) {
@@ -1759,6 +1789,22 @@ int main(int argc, char* argv[])
     //               Vec2{900.0f, 190.0f},      // position
     //               28.0f*render_scale,                     // size
     //               Vec3{0.0f, 0.0f, 0.0f});   // color
+
+    sprintf(fmt_buffer, "GridX: %d, GridY: %d", mouse_position_clamped.x, mouse_position_clamped.y);
+    gl_render_text(
+	    &renderer,
+	    fmt_buffer,
+	    Vec2{0.0f, 0.0f},
+	    28.0f*render_scale,
+	    Vec3{0.0f, 0.0f, 0.0f});
+
+    sprintf(fmt_buffer, "WorldMouseX: %d, WorldMouseY: %d", mouse_position_world.x, mouse_position_world.y);
+    gl_render_text(
+	    &renderer,
+	    fmt_buffer,
+	    Vec2{0.0f, 40.0f},
+	    28.0f*render_scale,
+	    Vec3{0.0f, 0.0f, 0.0f});
 
     SDL_GL_SwapWindow(window);
 
