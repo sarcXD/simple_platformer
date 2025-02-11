@@ -125,6 +125,7 @@ enum ENTITY_TYPE {
     GOAL = 2,
     INVERT_GRAVITY = 3,
     TELEPORT = 4,
+    DEBUG_LINE = 5,
 };
 
 static r32 entity_z[10];
@@ -705,13 +706,15 @@ int main(int argc, char* argv[])
     entity_colors[INVERT_GRAVITY] = Vec3{1.0f, 0.0f, 0.0f};
     entity_colors[TELEPORT] = Vec3{0.0f, 0.0f, 0.0f};
 
-    entity_z[OBSTACLE] = -3.0f;
-    entity_z[GOAL] = -4.0f;
+    entity_z[DEBUG_LINE] = -4.0f;
+    r32 entity_base_z = -5.0f;
+    entity_z[OBSTACLE] = entity_base_z - 1.0f;
+    entity_z[GOAL] = entity_base_z - 2.0f;
     {
-	entity_z[TELEPORT] = -5.0f; 
-	entity_z[INVERT_GRAVITY] = -5.0f;
+	entity_z[TELEPORT] = entity_base_z - 3.0f; 
+	entity_z[INVERT_GRAVITY] = entity_base_z - 3.0f;
     }
-    entity_z[PLAYER] = -6.0f;
+    entity_z[PLAYER] = entity_base_z - 4.0f;
   }
 
   if (SDL_Init(SDL_INIT_VIDEO) != 0)
@@ -847,7 +850,7 @@ int main(int argc, char* argv[])
   renderer.cam_proj = orthographic4m(
     0.0f, (r32)scr_width*render_scale,
     0.0f, (r32)scr_height*render_scale,
-    0.1f, 10.0f
+    0.1f, 15.0f
   );
 
   // @section: gameplay variables
@@ -1625,14 +1628,61 @@ int main(int argc, char* argv[])
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     
     // @section: rendering
-    // draw line
-    gl_draw_line(
-	    &renderer, 
-	    Vec3{0.0f, 500.0f, -1.0f}, 
-	    Vec3{1000.0f, 500.0f, -1.0f},
-	    Vec3{0.0f, 0.0f, 0.0f});
+    // @step: render draw lines
+#if 1
+    {
+	// @step: draw vertical lines
+	s32 line_index = (s32)state.camera_bounds.lb.x/atom_size.x;
+	for (s32 x = state.camera_bounds.lb.x; x <= state.camera_bounds.rt.x; x += atom_size.x) {
+	    s32 offset = line_index*atom_size.x - x;
+	    Vec3 start = Vec3{ 
+		(r32)(x + offset), 
+		state.camera_bounds.lb.y, 
+		entity_z[DEBUG_LINE]
+	    };
+	    Vec3 end = Vec3{
+		(r32)(x + offset),
+		state.camera_bounds.rt.y, 
+		entity_z[DEBUG_LINE]
+	    };
 
-    gl_line_flush(&renderer);
+	    gl_draw_line(
+		    &renderer,
+		    start,
+		    end,
+		    Vec3{0.1, 0.1, 0.1}
+		    );
+
+	    line_index++;
+	}
+
+	line_index = (s32)state.camera_bounds.lb.y/atom_size.y;
+	// @step: draw horizontal lines
+	for (s32 y = state.camera_bounds.lb.y; y <= state.camera_bounds.rt.y; y += atom_size.x) {
+	    s32 offset = line_index * atom_size.y - y;
+	    Vec3 start = Vec3{
+		state.camera_bounds.lb.x, 
+		    (r32)(y + offset), 
+		    entity_z[DEBUG_LINE]
+	    };
+	    Vec3 end = Vec3{
+		state.camera_bounds.rt.x, 
+		    (r32)(y + offset), 
+		    entity_z[DEBUG_LINE]
+	    };
+
+	    gl_draw_line(
+		    &renderer,
+		    start,
+		    end,
+		    Vec3{0.1, 0.1, 0.1}
+		    );
+	
+	    line_index++;
+	}
+	gl_line_flush(&renderer);
+    }
+#endif
 
     // render_entities
     for (int i = 0; i < state.game_level.entity_count; i++) {
