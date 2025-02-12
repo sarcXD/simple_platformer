@@ -276,7 +276,8 @@ struct GameState {
   // level
   // 0: in progress, 1: complete
   b8 level_state;
-  u32 level_index;
+  s32 level_index;
+  Str256 level_path_base;
   Str256 level_name;
   Level game_level;
   EntityInfo player;
@@ -286,6 +287,9 @@ struct GameState {
   b8 flip_gravity;
   b8 inside_teleporter;
   b8 teleporting;
+  r32 gravity_diry;
+  r32 effective_force;
+  Vec2 player_velocity;
   r64 gravity_flip_timer;
 };
 
@@ -483,6 +487,23 @@ void load_level(GameState *state, Arena *level_arena, Str256 level_path) {
     }
 
     SDL_free(level_data);
+}
+
+void setup_level(GameState *state, GLRenderer *renderer, Arena *arena) 
+{
+    Str256 _level_name = str256(level_names[state->level_index]);
+    Str256 level_path = state->level_path_base;
+    str_push256(&level_path, _level_name);
+
+    load_level(state, arena, level_path);
+
+    Entity player = state->game_level.entities[state->player.index];
+    renderer->cam_pos.x = player.position.x - (40.0f * state->render_scale.x);
+    renderer->cam_pos.y = player.position.y - (40.0f * state->render_scale.y);
+    state->effective_force = 0.0f;
+    state->player_velocity = Vec2{0.0f, 0.0f};
+    state->gravity_diry = 1.0f;
+    renderer->cam_update = 1;
 }
 
 void gl_setup_text(TextState* state, FT_Face font_face)
@@ -867,21 +888,6 @@ int main(int argc, char* argv[])
   renderer.ui_cam_look = renderer.cam_look;
   renderer.ui_cam_view = renderer.cam_view;
 
-  // @section: gameplay variables
-  r32 motion_scale = 2.0f;
-  r32 gravity_diry = 1.0f;
-  r32 fall_accelx = 3.0f*motion_scale;
-  r32 move_accelx = 4.0f*motion_scale;
-  r32 freefall_accel = -11.8f*motion_scale;
-  r32 jump_force = 6.5f*motion_scale;
-  r32 effective_force = 0.0f;
-  Vec2 camera_pan_slow = Vec2{2.0f, 2.0f}*motion_scale;
-
-  Vec2 player_velocity = Vec2{0.0f, 0.0f};
-  Vec2 p_move_dir = Vec2{0.0f, 0.0f};
-  // direction in which player is effectively travelling
-  Vec2 p_motion_dir = Vec2{0.0f, 0.0f};
-
   // @thinking: level object handling
   // there should be a most smallest supported unit
   // smallest_size: 16x16
@@ -896,6 +902,23 @@ int main(int argc, char* argv[])
   state.screen_size = Vec2{(r32)scr_width, (r32)scr_height};
   state.render_scale = vec2(render_scale);
   Vec2 camera_screen_size = state.screen_size * state.render_scale;
+  state.level_path_base = str256(base_level_path);
+
+  // @section: gameplay variables
+  r32 motion_scale = 2.0f;
+  state.gravity_diry = 1.0f;
+  r32 fall_accelx = 3.0f*motion_scale;
+  r32 move_accelx = 4.0f*motion_scale;
+  r32 freefall_accel = -11.8f*motion_scale;
+  r32 jump_force = 6.5f*motion_scale;
+  state.effective_force = 0.0f;
+  Vec2 camera_pan_slow = Vec2{2.0f, 2.0f}*motion_scale;
+
+  state.player_velocity = Vec2{0.0f, 0.0f};
+  Vec2 p_move_dir = Vec2{0.0f, 0.0f};
+  // direction in which player is effectively travelling
+  Vec2 p_motion_dir = Vec2{0.0f, 0.0f};
+
 
   // @todo: rename rect members (makes more sense)
   // tl -> lt
@@ -911,23 +934,7 @@ int main(int argc, char* argv[])
   Arena level_arena;
   size_t arena_size = max_level_entities*(sizeof(Entity) + sizeof(EntityInfo));
   arena_init(&level_arena, (unsigned char*)level_mem, arena_size);
-
-  Str256 base = str256(base_level_path);
-  Str256 _level_name = str256(level_names[state.level_index]);
-  Str256 level_path = base;
-  str_push256(&level_path, _level_name);
-  {
-      // setup level state
-      load_level(&state, &level_arena, level_path);
-      // put camera on player
-      Entity player = state.game_level.entities[state.player.index];
-      renderer.cam_pos.x = player.position.x - (40.0f * state.render_scale.x);
-      renderer.cam_pos.y = player.position.y - (40.0f * state.render_scale.y);
-      effective_force = 0.0f;
-      player_velocity = Vec2{0.0f, 0.0f};
-      gravity_diry = 1.0f;
-      renderer.cam_update = 1;
-  }
+  setup_level(&state, &renderer, &level_arena);
 
   // gameplay camera movement stuff
   Vec2 cam_lt_limit = {0};
@@ -1052,20 +1059,19 @@ int main(int argc, char* argv[])
               controller.toggle_gravity = 1;
             }
 	    // @todo: fix this janky manual camera movement 
+	    if (ev.key.keysym.sym == SDLK_HOME)
+	    {
+		state.level_index = MAX(state.level_index - 1, 0);
+		setup_level(&state, &renderer, &level_arena);
+	    }
+	    if (ev.key.keysym.sym == SDLK_END)
+	    {
+		state.level_index = MIN(state.level_index + 1, level_count-1);
+		setup_level(&state, &renderer, &level_arena);
+	    }
 	    if (ev.key.keysym.sym == SDLK_F5)
 	    {
-		{
-		    // setup level state
-		    load_level(&state, &level_arena, level_path);
-		    // put camera on player
-		    Entity player = state.game_level.entities[state.player.index];
-		    renderer.cam_pos.x = player.position.x - (40.0f * state.render_scale.x);
-		    renderer.cam_pos.y = player.position.y - (40.0f * state.render_scale.y);
-		    effective_force = 0.0f;
-		    player_velocity = Vec2{0.0f, 0.0f};
-		    gravity_diry = 1.0f;
-		    renderer.cam_update = 1;
-		}
+		setup_level(&state, &renderer, &level_arena);
 	    }
 #if CAM_MANUAL_MOVE
 	    if (ev.key.keysym.sym == SDLK_LEFT)
@@ -1125,36 +1131,23 @@ int main(int argc, char* argv[])
     // @section: state based loading
     if (state.level_state == 1) {
 	state.level_index = clampi(state.level_index+1, 0, level_count-1);
-	Str256 _level_name = str256(level_names[state.level_index]);
-	Str256 level_path = base;
-	str_push256(&level_path, _level_name);
-	{
-	    // setup level state
-	    load_level(&state, &level_arena, level_path);
-	    // put camera on player
-	    Entity player = state.game_level.entities[state.player.index];
-	    renderer.cam_pos.x = player.position.x;
-	    renderer.cam_pos.y = player.position.y;
-	    effective_force = 0.0f;
-	    player_velocity = Vec2{0.0f, 0.0f};
-	    gravity_diry = 1.0f;
-	}
+	setup_level(&state, &renderer, &level_arena);
     }
     
     // @section: input processing
     if (controller.toggle_gravity)
     {
       is_gravity = !is_gravity;
-      player_velocity = Vec2{0.0f, 0.0f};
+      state.player_velocity = Vec2{0.0f, 0.0f};
       p_move_dir.x = 0.0f;
-      effective_force = 0.0f;
+      state.effective_force = 0.0f;
       p_motion_dir = {0};
     }
     if (state.flip_gravity)
     {
 	// @resume: I need to add a buffer zone, something like some iframes, so that once I touch a gravity block
 	// I don't reflip gravity if I am in contact with the block for 1-2 seconds right after first colliding
-	gravity_diry = gravity_diry > 0.0f ? -0.8f : 1.0f;
+	state.gravity_diry = state.gravity_diry > 0.0f ? -0.8f : 1.0f;
 	//gravity_diry *= -1.0f;
 	state.flip_gravity = 0;
     }
@@ -1194,11 +1187,11 @@ int main(int argc, char* argv[])
     p_motion_dir = {0};
     if (collidey)
     {
-      player_velocity.y = 0.0f;
+      state.player_velocity.y = 0.0f;
     }
     if (collidex)
     {
-      player_velocity.x = 0.0f;
+      state.player_velocity.x = 0.0f;
     }
     if (is_gravity)
     {
@@ -1209,34 +1202,34 @@ int main(int argc, char* argv[])
 	  // @note: can I reduce the states here like I did in the falling case
 	  // without separate checks
 	  if (collidex) {
-	      effective_force = 0.0f;
+	      state.effective_force = 0.0f;
 	  } else if (is_key_down_x) {
 	      r32 updated_force = (
-		      effective_force + p_move_dir.x*move_accelx*timer.tDelta
+		      state.effective_force + p_move_dir.x*move_accelx*timer.tDelta
 		      );
 	      updated_force = clampf(
 		      updated_force, -move_accelx, move_accelx
 		      );
-	      effective_force = updated_force;
+	      state.effective_force = updated_force;
 	  } else {
 	      r32 friction = 0.0f;
-	      if (effective_force > 0.0f) {
+	      if (state.effective_force > 0.0f) {
 		friction = -move_accelx*timer.tDelta;
-	      } else if (effective_force < 0.0f) {
+	      } else if (state.effective_force < 0.0f) {
 		friction = move_accelx*timer.tDelta;
 	      }
-	      r32 updated_force = effective_force + friction;
-	      effective_force = (
+	      r32 updated_force = state.effective_force + friction;
+	      state.effective_force = (
 		ABS(updated_force) < 0.5f ? 
 		0.0f : updated_force
 	      );
 	  }
       } else {
-        r32 smoothing_force = effective_force;
+        r32 smoothing_force = state.effective_force;
         r32 net_force = 0.0f;
         r32 active_force = 0.0f;
         if (!collidex) { 
-          net_force = effective_force;
+          net_force = state.effective_force;
 	  if (controller.jump) {
 	      // @step: if in the air and jumping in a different direction
 	      // allow more immediate feeling force, instead of the jump adding into net_force
@@ -1265,8 +1258,8 @@ int main(int argc, char* argv[])
 		  // since the max speed in respective stages is different this can
 		  // function as a speed smoother, without too many checks and 
 		  // explicit checking
-		  b8 is_force_pos = effective_force > 0.0f;
-		  b8 is_force_neg = effective_force < 0.0f;
+		  b8 is_force_pos = state.effective_force > 0.0f;
+		  b8 is_force_neg = state.effective_force < 0.0f;
 		  r32 friction = 0.0f;
 		  if (is_force_pos) {
 		    friction = -fall_accelx*timer.tDelta;
@@ -1277,12 +1270,12 @@ int main(int argc, char* argv[])
 	      }
 	  }
         }
-        effective_force = net_force;
+        state.effective_force = net_force;
       }
       
       {
         // horizontal motion setting
-        r32 dx1 = effective_force;
+        r32 dx1 = state.effective_force;
         if ( dx1 == 0.0f ) {
           p_move_dir.x = 0.0f;
         }
@@ -1292,27 +1285,27 @@ int main(int argc, char* argv[])
         } else if (dx1 > 0.0f) {
           p_motion_dir.x = 1.0f;
         }
-        player_velocity.x = dx1;
+        state.player_velocity.x = dx1;
         pd_1.x = dx1;
       }
 
       {
         // vertical motion when falling
-        r32 dy1 = player_velocity.y; 
-        dy1 = dy1 + gravity_diry * freefall_accel * timer.tDelta;
+        r32 dy1 = state.player_velocity.y; 
+        dy1 = dy1 + state.gravity_diry * freefall_accel * timer.tDelta;
         if (controller.jump) {
-          dy1 = gravity_diry*jump_force;
+          dy1 = state.gravity_diry*jump_force;
 	  if (!collidey) {
 	      // if we are in the air, the jump force is 75% of normal
-	      dy1 = gravity_diry * jump_force * 0.75f;
+	      dy1 = state.gravity_diry * jump_force * 0.75f;
 	  }
         }
-        if (dy1 < gravity_diry * -0.01f) {
-          p_motion_dir.y = -gravity_diry;
-        } else if (dy1 > gravity_diry * 0.01f) {
-          p_motion_dir.y = gravity_diry;
+        if (dy1 < state.gravity_diry * -0.01f) {
+          p_motion_dir.y = -state.gravity_diry;
+        } else if (dy1 > state.gravity_diry * 0.01f) {
+          p_motion_dir.y = state.gravity_diry;
         }
-        player_velocity.y = dy1;
+        state.player_velocity.y = dy1;
         pd_1.y = dy1;
       }
     }
@@ -1384,7 +1377,7 @@ int main(int argc, char* argv[])
 	  t_collide_bottom = 1;
 	}
 
-	b8 prev_collide_y = !(prev_top < t_bottom || prev_bottom > t_top);
+	b8 prev_collide_y = !(prev_top < t_bottom + 0.2f || prev_bottom > t_top);
 	b8 new_collide_x = !(p_right < t_left || p_left > t_right);
 	if (prev_collide_y && new_collide_x) {
 	  t_collide_x = 1;
@@ -1589,8 +1582,8 @@ int main(int argc, char* argv[])
 	}
 
 
-	b8 player_moving_up = p_motion_dir.y == gravity_diry*1 && !is_collide_y;
-	b8 player_moving_down = p_motion_dir.y == gravity_diry*-1 && !is_collide_y;
+	b8 player_moving_up = p_motion_dir.y == state.gravity_diry*1 && !is_collide_y;
+	b8 player_moving_down = p_motion_dir.y == state.gravity_diry*-1 && !is_collide_y;
 
 	player_camera_offset = player.position.v2() - renderer.cam_pos.v2();
 	// @step: player moving at edges of the screen
@@ -1755,7 +1748,7 @@ int main(int argc, char* argv[])
                      Vec3{0.0f, 0.0f, 0.0f});   // color
 
       char speed_output[50];
-      sprintf(speed_output, "%f pps", player_velocity.x);
+      sprintf(speed_output, "%f pps", state.player_velocity.x);
       gl_render_text(&renderer,
                      speed_output,
                      Vec2{500.0f, 100.0f},      // position

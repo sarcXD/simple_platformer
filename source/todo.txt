@@ -33,16 +33,11 @@ in the level file.
     * get world position via mouse
 - setup ui camera
 - Fix camera jerk on level load (just a bug)
+- Fix collision for 1 block movement
+- Refactor level loading functions
 
 DOING:
 
-BLOCKED:
-- Audio: figure out what the correct audio sound for jumping will be.
-
 TODO:
-- Refactor level loading functions
-- Make camera pan a continuous function, discrete steps are too jerky.
-- Update camera follower for centering player in view (with limits) after
-  a few seconds (maybe like 2 seconds)
-- Implement Broad Phase Collision for efficient collision handling, let's see
-- vectorize math library with simd
+- Making levels
+

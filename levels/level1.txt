@@ -1,7 +1,12 @@
 # level format version number
 0x1
-# entity_id posx poxy sizex sizey
-0 150 70 1 1
-1 0 0 50 1
-1 0 0 1 50
-2 1600 1600 1 1
+# entity_id posx    poxy    sizex   sizey
+1	    0	    0	    20	    1
+1 	    256	    128     1	    1
+0 	    128	    64      1	    1
+1	    0	    64	    1	    20
+1	    768	    1600    10	    1
+#..	    ..	    ..	    ..	    ..	    id	    link_id
+4	    768	    64	    1	    2	    20	    21
+4	    1024    1664    1	    2	    21	    20
+
