@@ -32,9 +32,9 @@ in the level file.
     * add lines for easier distinction
     * get world position via mouse
 - setup ui camera
+- Fix camera jerk on level load (just a bug)
 
 DOING:
-- Fix camera jerk on level load
 
 BLOCKED:
 - Audio: figure out what the correct audio sound for jumping will be.

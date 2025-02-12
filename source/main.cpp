@@ -900,13 +900,7 @@ int main(int argc, char* argv[])
   // @todo: rename rect members (makes more sense)
   // tl -> lt
   // br -> rb
-  {
-      // @step: calculate_camera_bounds
-      Vec2 cam_lb = Vec2{renderer.cam_pos.x, renderer.cam_pos.y};
-      Vec2 cam_rt = Vec2{renderer.cam_pos.x + camera_screen_size.x, renderer.cam_pos.y + camera_screen_size.y};
-      state.camera_bounds.lb = cam_lb;
-      state.camera_bounds.rt = cam_rt;
-  }
+  state.camera_bounds = rect(renderer.cam_pos, camera_screen_size);
 
   // @section: level elements
   
@@ -927,8 +921,8 @@ int main(int argc, char* argv[])
       load_level(&state, &level_arena, level_path);
       // put camera on player
       Entity player = state.game_level.entities[state.player.index];
-      renderer.cam_pos.x = player.position.x;
-      renderer.cam_pos.y = player.position.y;
+      renderer.cam_pos.x = player.position.x - (40.0f * state.render_scale.x);
+      renderer.cam_pos.y = player.position.y - (40.0f * state.render_scale.y);
       effective_force = 0.0f;
       player_velocity = Vec2{0.0f, 0.0f};
       gravity_diry = 1.0f;
@@ -1065,11 +1059,12 @@ int main(int argc, char* argv[])
 		    load_level(&state, &level_arena, level_path);
 		    // put camera on player
 		    Entity player = state.game_level.entities[state.player.index];
-		    renderer.cam_pos.x = player.position.x;
-		    renderer.cam_pos.y = player.position.y;
+		    renderer.cam_pos.x = player.position.x - (40.0f * state.render_scale.x);
+		    renderer.cam_pos.y = player.position.y - (40.0f * state.render_scale.y);
 		    effective_force = 0.0f;
 		    player_velocity = Vec2{0.0f, 0.0f};
 		    gravity_diry = 1.0f;
+		    renderer.cam_update = 1;
 		}
 	    }
 #if CAM_MANUAL_MOVE
@@ -1510,7 +1505,7 @@ int main(int argc, char* argv[])
 	state.game_level.entities[state.player.index] = player;
     }
 
-    // @func: update_camera
+    // @section: camera_update
     {
 	// camera movement and handling
 	// Cases:
@@ -1629,13 +1624,7 @@ int main(int argc, char* argv[])
 		    renderer.preset_up_dir
 		    );
 	    renderer.cam_update = false;
-	    {
-		// @step: calculate_camera_bounds
-		Vec2 cam_lb = Vec2{renderer.cam_pos.x, renderer.cam_pos.y};
-		Vec2 cam_rt = Vec2{renderer.cam_pos.x + camera_screen_size.x, renderer.cam_pos.y + camera_screen_size.y};
-		state.camera_bounds.lb = cam_lb;
-		state.camera_bounds.rt = cam_rt;
-	    }
+	    state.camera_bounds = rect(renderer.cam_pos, camera_screen_size);
 	}
     }
     
