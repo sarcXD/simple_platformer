@@ -4,17 +4,8 @@
 #include <stdio.h>
 #include <memory.h>
 
-#define FREETYPE 0
-#if FREETYPE
-#include <ft2build.h>
-#include FT_FREETYPE_H
-#endif
-
-#define STB_TT 1
-#if STB_TT
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "stb_truetype.h"
-#endif
 
 #include <stdint.h>
 
@@ -92,21 +83,27 @@ enum PlatformKey {
 };
 
 struct TextChar {
+  s64 lsb;
   s64 advance;
-  Vec2 size;
   Vec2 box0;
   Vec2 box1;
-  Vec2 bearing;
+  Vec2 size;
 };
 
 struct TextState {
-  u32 pixel_size;
   r32 scale;
+  u32 pixel_size;
+  s32 ascent;
+  s32 descent;
+  s32 linegap;
   u32 texture_atlas_id;
   u32 sp;
   u32 vao;
   u32 vbo;
   u32 chunk_size;
+  IVec2 box0;
+  IVec2 box1;
+  stbtt_fontinfo font;
   s32* char_indexes;
   Mat4* transforms;
   TextChar* char_map;
@@ -661,11 +658,10 @@ int main(int argc, char* argv[])
     // ==========
     // setup text
     // setup stb_truetype stuff
-    stbtt_fontinfo font;
 
     size_t fsize = 0;
     unsigned char *font_buffer = (unsigned char*)SDL_LoadFile("./assets/fonts/Roboto.ttf", &fsize);
-    stbtt_InitFont(&font, font_buffer, 0);
+    stbtt_InitFont(&renderer.ui_text.font, font_buffer, 0);
     renderer.ui_text.pixel_size = 32*render_scale;
     renderer.ui_text.sp = ui_text_sp;
     renderer.ui_text.chunk_size = 32;
@@ -682,7 +678,7 @@ int main(int argc, char* argv[])
     // setup_text
     TextState *uistate = &(renderer.ui_text);
 
-    uistate->scale = stbtt_ScaleForPixelHeight(&font, uistate->pixel_size);
+    uistate->scale = stbtt_ScaleForPixelHeight(&uistate->font, uistate->pixel_size);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 
     glGenTextures(1, &(uistate->texture_atlas_id));
@@ -702,33 +698,44 @@ int main(int argc, char* argv[])
             0);
 
     s32 ascent, descent, linegap = 0;
-    stbtt_GetFontVMetrics(&font, &ascent, &descent, &linegap);
-    s32 x0, x1, y0, y1;
-    stbtt_GetFontBoundingBox(&font, &x0, &y0, &x1, &y1);
+    stbtt_GetFontVMetrics(&uistate->font, &ascent, &descent, &linegap);
+    uistate->ascent = ascent;
+    uistate->descent = descent;
+    uistate->linegap = linegap;
+    s32 x0, y0, x1, y1 = 0;
+
+    stbtt_GetFontBoundingBox(&uistate->font, &x0, &y0, &x1, &y1);
+    uistate->box0 = IVec2{x0, y0};
+    uistate->box1 = IVec2{x1, y1};
+
+    u32 pixel_size = uistate->pixel_size;
+    unsigned char *bitmap_buffer = (unsigned char*)calloc(pixel_size * pixel_size, sizeof(unsigned char));
     for (u32 c = 0; c < 128; c++)
     {
         // @resume: working on replicating the 
         // freetype gl_setup_text function
         s32 advance, lsb = 0;
-        stbtt_GetCodepointHMetrics(&font, c, &advance, &lsb);
-        s32 width, height, xoff, yoff = 0;
+        stbtt_GetCodepointHMetrics(&uistate->font, c, &advance, &lsb);
 	s32 bx0, bx1, by0, by1 = 0;
 	stbtt_GetCodepointBitmapBox(
-		&font, c,
+		&uistate->font, c,
 		uistate->scale, uistate->scale,
 		&bx0, &by0,
 		&bx1, &by1
 		);
 
-        unsigned char *data = stbtt_GetCodepointBitmap(
-                &font, 
+	s32 width = bx1 - bx0;
+	s32 height = by1 - by0;
+
+        stbtt_MakeCodepointBitmap(
+                &uistate->font, 
+		bitmap_buffer,
+		width,
+		height,
+		width,
                 uistate->scale, 
                 uistate->scale,
-                c,
-                &width,
-                &height,
-                &xoff,
-                &yoff);
+                c);
 
         glTexSubImage3D(
 		GL_TEXTURE_2D_ARRAY,
@@ -740,7 +747,7 @@ int main(int argc, char* argv[])
           	1,
           	GL_RED,
           	GL_UNSIGNED_BYTE,
-          	data
+          	bitmap_buffer
 		);
         // set texture options
         glTexParameteri(
@@ -760,9 +767,6 @@ int main(int argc, char* argv[])
         tc.size = Vec2{
             (r32)width, (r32)height
         };
-	tc.bearing = Vec2{ 
-	    (r32)(lsb + xoff), (r32)yoff
-	};
 	tc.box0 = Vec2{
 	    (r32)bx0, (r32)by0
 	};
@@ -770,6 +774,7 @@ int main(int argc, char* argv[])
 	    (r32)bx1, (r32)by1
 	};
         tc.advance = advance;
+	tc.lsb = (s32)lsb;
         uistate->char_map[c] = tc;
     }
 
@@ -1690,7 +1695,9 @@ int main(int argc, char* argv[])
 	r32 startx = 0.0f;
 	r32 starty = 0.0f;
 	r32 linex = startx;
-	r32 scale = renderer.ui_text.scale;
+	r32 font_size = 32.0f;
+	r32 render_scale = font_size/renderer.ui_text.pixel_size;
+	r32 scale = renderer.ui_text.scale*font_size/renderer.ui_text.pixel_size;
 	memset(
 		renderer.ui_text.transforms, 
 		0, 
@@ -1701,13 +1708,13 @@ int main(int argc, char* argv[])
 		renderer.ui_text.chunk_size);
 	char *text = "qhick brown jumps over lazy dog";
 	char *char_iter = text;
-	r32 baseline = -500.0f*scale;
+	r32 baseline = -renderer.ui_text.box0.y*scale - font_size;
 	while (*char_iter != '\0') {
 	    TextChar render_char = renderer.ui_text.char_map[*char_iter];
-	    r32 xpos = linex + (scale * render_char.bearing.x);
-	    r32 ypos = starty + (baseline - render_char.box0.y);
+	    r32 xpos = linex + (scale * render_char.lsb);
+	    r32 ypos = starty + (baseline - render_scale*render_char.box0.y);
 
-	    Mat4 sc = scaling_matrix4m(32.0f, 32.0f, 1.0f);
+	    Mat4 sc = scaling_matrix4m(font_size, font_size, 1.0f);
 	    Mat4 tr = translation_matrix4m(xpos, ypos, 0);
 	    Mat4 model = multiply4m(tr, sc);
 	    renderer.ui_text.transforms[running_index] = model;
@@ -1715,8 +1722,15 @@ int main(int argc, char* argv[])
 		int(*char_iter);
 
 	    linex += (scale * render_char.advance);
-	    running_index++;
+	    char prev_char = *char_iter;
 	    char_iter++;
+	    char curr_char = *char_iter;
+
+	    if (curr_char) {
+		s32 kern = scale * stbtt_GetCodepointKernAdvance(&renderer.ui_text.font, prev_char, curr_char);
+		linex += kern;
+	    }
+	    running_index++;
 	}
 	u32 render_count = running_index;
 	r32 transform_loc = glGetUniformLocation(
