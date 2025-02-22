@@ -11,6 +11,7 @@ void main() {
   gl_Position = Projection * View * LetterTransforms[gl_InstanceID] * vec4(aPos, 0.0, 1.0);
   vec2 tex = aPos;
   TexCoords = tex;
+  // flip texture coordinates
   TexCoords.y = 1.0 - TexCoords.y;
   Index = gl_InstanceID;
 }

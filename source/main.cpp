@@ -1,13 +1,20 @@
 #include <SDL2/SDL.h>
 #include <glad/glad.h>
 
-#define MINIAUDIO_IMPLEMENTATION
-#include "miniaudio.h"
-
 #include <stdio.h>
+#include <memory.h>
 
+#define FREETYPE 0
+#if FREETYPE
 #include <ft2build.h>
 #include FT_FREETYPE_H
+#endif
+
+#define STB_TT 1
+#if STB_TT
+#define STB_TRUETYPE_IMPLEMENTATION
+#include "stb_truetype.h"
+#endif
 
 #include <stdint.h>
 
@@ -87,11 +94,14 @@ enum PlatformKey {
 struct TextChar {
   s64 advance;
   Vec2 size;
+  Vec2 box0;
+  Vec2 box1;
   Vec2 bearing;
 };
 
 struct TextState {
   u32 pixel_size;
+  r32 scale;
   u32 texture_atlas_id;
   u32 sp;
   u32 vao;
@@ -161,8 +171,8 @@ struct EntityInfoArr {
 const int level_count = 2;
 static const char* base_level_path = "./levels/";
 static const char *level_names[20] = {
-    "level0.txt",
     "level1.txt",
+    "level0.txt",
 };
 
 struct Level0x1 {
@@ -506,182 +516,6 @@ void setup_level(GameState *state, GLRenderer *renderer, Arena *arena)
     renderer->cam_update = 1;
 }
 
-void gl_setup_text(TextState* state, FT_Face font_face)
-{
-  FT_Set_Pixel_Sizes(font_face, state->pixel_size, state->pixel_size);
-  glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-  
-  glGenTextures(1, &(state->texture_atlas_id));
-  glBindTexture(GL_TEXTURE_2D_ARRAY, state->texture_atlas_id);
-  
-  // generate texture
-  glTexImage3D(
-    GL_TEXTURE_2D_ARRAY,
-    0,
-    GL_R8,
-    state->pixel_size,
-    state->pixel_size,
-    128,
-    0,
-    GL_RED,
-    GL_UNSIGNED_BYTE,
-    0
-  );
-  
-  // generate characters
-  for (u32 c = 0; c < 128; c++)
-  {
-    if (FT_Load_Char(font_face, c, FT_LOAD_RENDER))
-    {
-      printf("ERROR :: Freetype failed to load glyph: %c", c);
-    } 
-    else 
-    {
-      glTexSubImage3D(
-        GL_TEXTURE_2D_ARRAY,
-        0,
-        0, 0, // x, y offset
-        int(c),
-        font_face->glyph->bitmap.width,
-        font_face->glyph->bitmap.rows,
-        1,
-        GL_RED,
-        GL_UNSIGNED_BYTE,
-        font_face->glyph->bitmap.buffer
-      );
-      
-      // set texture options
-      glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-      glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-      glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-      glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-      
-      TextChar tc;
-      tc.size = Vec2{
-        (r32)font_face->glyph->bitmap.width, 
-        (r32)font_face->glyph->bitmap.rows
-      };
-      tc.bearing = Vec2{
-        (r32)font_face->glyph->bitmap_left, 
-        (r32)font_face->glyph->bitmap_top
-      };
-      tc.advance = font_face->glyph->advance.x;
-      
-      state->char_map[c] = tc;
-    }
-  }
-  
-  glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
-  
-  // @note: this data is used for GL_TRIANGLE_STRIP
-  // as such the order for vertices for this is AntiCW -> CW -> AntiCW
-  // that can be seen in this array as it goes from ACW -> CW
-  r32 vertices[] = {
-    0.0f, 1.0f,
-    0.0f, 0.0f,
-    1.0f, 1.0f,
-    1.0f, 0.0f
-  };
-  
-  glGenVertexArrays(1, &(state->vao));
-  glGenBuffers(1, &(state->vbo));
-  
-  glBindVertexArray(state->vao);
-  glBindBuffer(GL_ARRAY_BUFFER, state->vbo);
-  glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
-  glEnableVertexAttribArray(0);
-  glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, 0);
-  
-  glBindBuffer(GL_ARRAY_BUFFER, 0);
-  glBindVertexArray(0);
-}
-
-void gl_render_text(GLRenderer *renderer, char* text, Vec2 position, r32 size, Vec3 color)
-{
-  glDisable(GL_DEPTH_TEST);
-  glEnable(GL_BLEND);
-  glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-  
-  glUseProgram(renderer->ui_text.sp);
-  if (renderer->ui_cam_update) {
-      glUniformMatrix4fv(glGetUniformLocation(renderer->ui_text.sp, "View"), 
-			 1, GL_FALSE, renderer->ui_cam_view.buffer);
-      glUniformMatrix4fv(glGetUniformLocation(renderer->ui_text.sp, "Projection"), 
-			 1, GL_FALSE, renderer->cam_proj.buffer);
-      renderer->ui_cam_update = 0;
-  }
-  glUniform3fv(glGetUniformLocation(renderer->ui_text.sp, "TextColor"), 1, color.data);
-  glBindVertexArray(renderer->ui_text.vao);
-  glBindTexture(GL_TEXTURE_2D_ARRAY, renderer->ui_text.texture_atlas_id);
-  glBindBuffer(GL_ARRAY_BUFFER, renderer->ui_text.vbo);
-  glActiveTexture(GL_TEXTURE0);
-  
-  u32 running_index = 0;
-  r32 startx = position.x;
-  r32 starty = position.y;
-  r32 linex = startx;
-  r32 scale = size/renderer->ui_text.pixel_size;
-  memset(renderer->ui_text.transforms, 0, renderer->ui_text.chunk_size);
-  memset(renderer->ui_text.char_indexes, 0, renderer->ui_text.chunk_size);
-  
-  char *char_iter = text;
-  while (*char_iter != '\0')
-  {
-    TextChar render_char = renderer->ui_text.char_map[*char_iter];
-    if (*char_iter == '\n')
-    {
-      linex = startx;
-      starty = starty - (render_char.size.y * 1.5 * scale);
-    }
-    else if (*char_iter == ' ')
-    {
-      linex += (render_char.advance >> 6) * scale;
-    }
-    else
-    {
-      r32 xpos = linex + (scale * render_char.bearing.x);
-      r32 ypos = starty - (renderer->ui_text.pixel_size - render_char.bearing.y) * scale;
-      
-      r32 w = scale * renderer->ui_text.pixel_size;
-      r32 h = scale * renderer->ui_text.pixel_size;
-      
-      Mat4 sm = scaling_matrix4m(w, h, 0);
-      Mat4 tm = translation_matrix4m(xpos, ypos, 0);
-      Mat4 model = multiply4m(tm, sm);
-      renderer->ui_text.transforms[running_index] = model;
-      renderer->ui_text.char_indexes[running_index] = int(*char_iter);
-      
-      linex += (render_char.advance >> 6) * scale;
-      running_index++;
-      if (running_index > renderer->ui_text.chunk_size - 1)
-      {
-        r32 transform_loc = glGetUniformLocation(renderer->ui_text.sp, "LetterTransforms");
-        glUniformMatrix4fv(transform_loc, renderer->ui_text.chunk_size, 
-                           GL_FALSE, &(renderer->ui_text.transforms[0].buffer[0]));
-        r32 texture_map_loc = glGetUniformLocation(renderer->ui_text.sp, "TextureMap");
-        glUniform1iv(texture_map_loc, renderer->ui_text.chunk_size, renderer->ui_text.char_indexes);
-        glDrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 4, renderer->ui_text.chunk_size);
-        running_index = 0;
-        memset(renderer->ui_text.transforms, 0, renderer->ui_text.chunk_size);
-        memset(renderer->ui_text.char_indexes, 0, renderer->ui_text.chunk_size);
-      }
-    }
-    char_iter++;
-  }
-  if (running_index > 0)
-  {
-    u32 render_count = running_index < renderer->ui_text.chunk_size ? running_index : renderer->ui_text.chunk_size;
-    r32 transform_loc = glGetUniformLocation(renderer->ui_text.sp, "LetterTransforms");
-    glUniformMatrix4fv(transform_loc, render_count, 
-                       GL_FALSE, &(renderer->ui_text.transforms[0].buffer[0]));
-    r32 texture_map_loc = glGetUniformLocation(renderer->ui_text.sp, "TextureMap");
-    glUniform1iv(texture_map_loc, render_count, renderer->ui_text.char_indexes);
-    glDrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 4, render_count);
-    running_index = 0;
-    memset(renderer->ui_text.transforms, 0, render_count);
-    memset(renderer->ui_text.char_indexes, 0, render_count);
-  }
-}
 
 Vec2 get_move_dir(Controller c) {
   Vec2 dir = {};
@@ -823,48 +657,148 @@ int main(int argc, char* argv[])
   
   
   r32 render_scale = 1.0f; //(r32)scr_width / (r32)base_scr_width;
-  // ==========
-  // setup text
-  // 1. setup free type library stuff
-  FT_Library ft_lib;
-  FT_Face roboto_font_face;
-  if (FT_Init_FreeType(&ft_lib))
-  {
-    printf("ERROR :: Could not init freetype library\n");
-    return -1;
-  }
-  
-  FT_Error error = FT_New_Face(
-    ft_lib, 
-    "assets/fonts/Roboto.ttf", 
-    0, &roboto_font_face
-  );
-  if (error == FT_Err_Unknown_File_Format)
-  {
-    printf("ERROR :: Font Loading Failed. The font format is unsupported\n");
-    return -1;
-  }
-  else if (error)
-  {
-    printf("ERROR :: Font Loading Failed. Unknown error code: %d\n", error);
-    return -1;
-  }
-  // 2. setup gl text
-  // @note: we only support 128 characters, which is the basic ascii set
-  renderer.ui_text.chunk_size = 32;
-  renderer.ui_text.pixel_size = 32*render_scale;
-  renderer.ui_text.sp = ui_text_sp;
-  renderer.ui_text.transforms = (Mat4*)malloc(
-    renderer.ui_text.chunk_size*sizeof(Mat4)
-  );
-  renderer.ui_text.char_indexes = (s32*)malloc(
-    renderer.ui_text.chunk_size*sizeof(s32)
-  );
-  renderer.ui_text.char_map = (TextChar*)malloc(
-    128*sizeof(TextChar)
-  );
-  gl_setup_text(&(renderer.ui_text), roboto_font_face);
-  
+{
+    // ==========
+    // setup text
+    // setup stb_truetype stuff
+    stbtt_fontinfo font;
+
+    size_t fsize = 0;
+    unsigned char *font_buffer = (unsigned char*)SDL_LoadFile("./assets/fonts/Roboto.ttf", &fsize);
+    stbtt_InitFont(&font, font_buffer, 0);
+    renderer.ui_text.pixel_size = 32*render_scale;
+    renderer.ui_text.sp = ui_text_sp;
+    renderer.ui_text.chunk_size = 32;
+    renderer.ui_text.transforms = (Mat4*)malloc(
+      renderer.ui_text.chunk_size*sizeof(Mat4)
+    );
+    renderer.ui_text.char_indexes = (s32*)malloc(
+      renderer.ui_text.chunk_size*sizeof(s32)
+    );
+    renderer.ui_text.char_map = (TextChar*)malloc(
+      128*sizeof(TextChar)
+    );
+
+    // setup_text
+    TextState *uistate = &(renderer.ui_text);
+
+    uistate->scale = stbtt_ScaleForPixelHeight(&font, uistate->pixel_size);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+
+    glGenTextures(1, &(uistate->texture_atlas_id));
+    glBindTexture(GL_TEXTURE_2D_ARRAY, uistate->texture_atlas_id);
+
+    // generate texture
+    glTexImage3D(
+            GL_TEXTURE_2D_ARRAY,
+            0,
+            GL_R8,
+            uistate->pixel_size,
+            uistate->pixel_size,
+            128,
+            0,
+            GL_RED,
+            GL_UNSIGNED_BYTE,
+            0);
+
+    s32 ascent, descent, linegap = 0;
+    stbtt_GetFontVMetrics(&font, &ascent, &descent, &linegap);
+    s32 x0, x1, y0, y1;
+    stbtt_GetFontBoundingBox(&font, &x0, &y0, &x1, &y1);
+    for (u32 c = 0; c < 128; c++)
+    {
+        // @resume: working on replicating the 
+        // freetype gl_setup_text function
+        s32 advance, lsb = 0;
+        stbtt_GetCodepointHMetrics(&font, c, &advance, &lsb);
+        s32 width, height, xoff, yoff = 0;
+	s32 bx0, bx1, by0, by1 = 0;
+	stbtt_GetCodepointBitmapBox(
+		&font, c,
+		uistate->scale, uistate->scale,
+		&bx0, &by0,
+		&bx1, &by1
+		);
+
+        unsigned char *data = stbtt_GetCodepointBitmap(
+                &font, 
+                uistate->scale, 
+                uistate->scale,
+                c,
+                &width,
+                &height,
+                &xoff,
+                &yoff);
+
+        glTexSubImage3D(
+		GL_TEXTURE_2D_ARRAY,
+		0,
+		0, 0, // x, y offset
+		int(c),
+		width,
+          	height,
+          	1,
+          	GL_RED,
+          	GL_UNSIGNED_BYTE,
+          	data
+		);
+        // set texture options
+        glTexParameteri(
+		GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE
+	);
+        glTexParameteri(
+                GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE
+                );
+        glTexParameteri(
+                GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR
+                );
+        glTexParameteri(
+                GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR
+                );
+
+        TextChar tc;
+        tc.size = Vec2{
+            (r32)width, (r32)height
+        };
+	tc.bearing = Vec2{ 
+	    (r32)(lsb + xoff), (r32)yoff
+	};
+	tc.box0 = Vec2{
+	    (r32)bx0, (r32)by0
+	};
+	tc.box1 = Vec2{
+	    (r32)bx1, (r32)by1
+	};
+        tc.advance = advance;
+        uistate->char_map[c] = tc;
+    }
+
+    glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+
+    r32 vertices[] = {
+        0.0f, 1.0f,
+        0.0f, 0.0f,
+        1.0f, 1.0f,
+        1.0f, 0.0f
+    };
+
+    glGenVertexArrays(1, &(uistate->vao));
+    glGenBuffers(1, &(uistate->vbo));
+
+    glBindVertexArray(uistate->vao);
+    glBindBuffer(GL_ARRAY_BUFFER, uistate->vbo);
+    glBufferData(
+            GL_ARRAY_BUFFER, 
+	    sizeof(vertices), 
+	    vertices, 
+	    GL_STATIC_DRAW);
+
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, 0);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindVertexArray(0);
+}
+
   
   // ============
   // setup camera
@@ -1696,6 +1630,7 @@ int main(int argc, char* argv[])
 	gl_line_flush(&renderer);
     }
 
+#if 0
     // render_entities
     for (int i = 0; i < state.game_level.entity_count; i++) {
 	Entity entity = state.game_level.entities[i];
@@ -1714,13 +1649,97 @@ int main(int argc, char* argv[])
     }
 
     gl_cq_flush(&renderer);
+#endif
 
     array_clear(&renderer.cq_pos_batch);
     array_clear(&renderer.cq_color_batch);
     renderer.cq_batch_count = 0;
     
     // render ui text
+    {
+	Vec3 color = Vec3{1.0f, 1.0f, 1.0f};
+	// render_text
+	glDisable(GL_DEPTH_TEST);
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+	glUseProgram(renderer.ui_text.sp);
+	if (renderer.ui_cam_update) {
+	    glUniformMatrix4fv(
+		    glGetUniformLocation(
+			renderer.ui_text.sp, "View"),
+		    1, GL_FALSE, renderer.ui_cam_view.buffer);
+	    glUniformMatrix4fv(
+		    glGetUniformLocation(
+			renderer.ui_text.sp, "Projection"),
+		    1, GL_FALSE, renderer.cam_proj.buffer);
+	    renderer.ui_cam_update = 0;
+	}
+	glUniform3fv(
+		glGetUniformLocation(
+		    renderer.ui_text.sp, "TextColor"),
+		1, color.data);
+	glBindVertexArray(renderer.ui_text.vao);
+	glBindTexture(
+		GL_TEXTURE_2D_ARRAY, 
+		renderer.ui_text.texture_atlas_id);
+	glBindBuffer(GL_ARRAY_BUFFER, renderer.ui_text.vbo);
+	glActiveTexture(GL_TEXTURE0);
+
+	u32 running_index = 0;
+	r32 startx = 0.0f;
+	r32 starty = 0.0f;
+	r32 linex = startx;
+	r32 scale = renderer.ui_text.scale;
+	memset(
+		renderer.ui_text.transforms, 
+		0, 
+		renderer.ui_text.chunk_size);
+	memset(
+		renderer.ui_text.char_indexes,
+		0,
+		renderer.ui_text.chunk_size);
+	char *text = "qhick brown jumps over lazy dog";
+	char *char_iter = text;
+	r32 baseline = -500.0f*scale;
+	while (*char_iter != '\0') {
+	    TextChar render_char = renderer.ui_text.char_map[*char_iter];
+	    r32 xpos = linex + (scale * render_char.bearing.x);
+	    r32 ypos = starty + (baseline - render_char.box0.y);
+
+	    Mat4 sc = scaling_matrix4m(32.0f, 32.0f, 1.0f);
+	    Mat4 tr = translation_matrix4m(xpos, ypos, 0);
+	    Mat4 model = multiply4m(tr, sc);
+	    renderer.ui_text.transforms[running_index] = model;
+	    renderer.ui_text.char_indexes[running_index] = 
+		int(*char_iter);
+
+	    linex += (scale * render_char.advance);
+	    running_index++;
+	    char_iter++;
+	}
+	u32 render_count = running_index;
+	r32 transform_loc = glGetUniformLocation(
+		renderer.ui_text.sp, "LetterTransforms");
+	glUniformMatrix4fv(
+		transform_loc, 
+		render_count,
+		GL_FALSE, 
+		&(renderer.ui_text.transforms[0].buffer[0])
+		);
+	r32 texture_map_loc = glGetUniformLocation(
+		renderer.ui_text.sp, "TextureMap");
+	glUniform1iv(
+		texture_map_loc, 
+		render_count, 
+		renderer.ui_text.char_indexes);
+	glDrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 4, render_count);
+	running_index = 0;
+	memset(renderer.ui_text.transforms, 0, render_count);
+	memset(renderer.ui_text.char_indexes, 0, render_count);
+    }
     
+#if FREETYPE
     char level_state_output[50];
     sprintf(level_state_output, "is level clear = %d", state.level_state);
     gl_render_text(
@@ -1787,6 +1806,7 @@ int main(int argc, char* argv[])
 	    Vec2{0.0f, 40.0f},
 	    28.0f*render_scale,
 	    Vec3{0.0f, 0.0f, 0.0f});
+#endif
 
     SDL_GL_SwapWindow(window);
 
