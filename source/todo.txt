@@ -35,11 +35,9 @@ in the level file.
 - Fix camera jerk on level load (just a bug)
 - Fix collision for 1 block movement
 - Refactor level loading functions
+- Port text rendering to stb_truetype
 
 DOING:
-- Port text rendering to stb_truetype
-    - multiline rendering
-    - ignore spaces
 
 TODO:
 - Making levels

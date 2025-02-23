@@ -539,8 +539,8 @@ void gl_render_text(
     r32 liney = starty;
     r32 render_scale = font_size/(r32)renderer->ui_text.pixel_size;
     r32 font_scale = renderer->ui_text.scale*render_scale;
-    memset(renderer->ui_text.transforms, 0, renderer->ui_text.chunk_size);
-    memset(renderer->ui_text.char_indexes, 0, renderer->ui_text.chunk_size);
+    memset(renderer->ui_text.transforms, 0, sizeof(Mat4)*renderer->ui_text.chunk_size);
+    memset(renderer->ui_text.char_indexes, 0, sizeof(s32)*renderer->ui_text.chunk_size);
 
     char *char_iter = text;
     r32 baseline = -renderer->ui_text.bbox0.y*font_scale - font_size;
@@ -578,7 +578,7 @@ void gl_render_text(
 	char curr_char = *char_iter;
 
 	if (curr_char) {
-	    s32 kern = font_scale * stbtt_GetCodepointKernAdvance(&renderer->ui_text.font, prev_char, curr_char);
+	    r32 kern = font_scale * stbtt_GetCodepointKernAdvance(&renderer->ui_text.font, prev_char, curr_char);
 	    linex += kern;
 	}
 	running_index++;
@@ -609,6 +609,6 @@ void gl_text_flush(GLRenderer *renderer, u32 render_count) {
 
     glDrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 4, render_count);
 
-    memset(renderer->ui_text.transforms, 0, render_count);
-    memset(renderer->ui_text.char_indexes, 0, render_count);
+    memset(renderer->ui_text.transforms, 0, sizeof(Mat4)*renderer->ui_text.chunk_size);
+    memset(renderer->ui_text.char_indexes, 0, sizeof(s32)*renderer->ui_text.chunk_size);
 }
