@@ -366,3 +366,249 @@ void gl_line_flush(GLRenderer *renderer) {
     array_clear(&renderer->line_color_batch);
     renderer->line_batch_count = 0;
 }
+
+void gl_setup_text(TextState *uistate) {
+    uistate->scale = stbtt_ScaleForPixelHeight(&uistate->font, uistate->pixel_size);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+
+    glGenTextures(1, &(uistate->texture_atlas_id));
+    glBindTexture(GL_TEXTURE_2D_ARRAY, uistate->texture_atlas_id);
+
+    // generate texture
+    glTexImage3D(
+            GL_TEXTURE_2D_ARRAY,
+            0,
+            GL_R8,
+            uistate->pixel_size,
+            uistate->pixel_size,
+            128,
+            0,
+            GL_RED,
+            GL_UNSIGNED_BYTE,
+            0);
+
+    // font vmetrics
+    s32 ascent, descent, linegap = 0;
+    stbtt_GetFontVMetrics(&uistate->font, &ascent, &descent, &linegap);
+    uistate->ascent = ascent;
+    uistate->descent = descent;
+    uistate->linegap = linegap;
+
+    // font bounding box
+    s32 x0, y0, x1, y1 = 0;
+    stbtt_GetFontBoundingBox(&uistate->font, &x0, &y0, &x1, &y1);
+    uistate->bbox0 = IVec2{x0, y0};
+    uistate->bbox1 = IVec2{x1, y1};
+
+    // generate bitmaps
+    u32 pixel_size = uistate->pixel_size;
+    unsigned char *bitmap_buffer = (unsigned char*)calloc(pixel_size * pixel_size, sizeof(unsigned char));
+    for (u32 c = 0; c < 128; c++)
+    {
+        s32 advance, lsb = 0;
+        stbtt_GetCodepointHMetrics(&uistate->font, c, &advance, &lsb);
+	s32 bx0, bx1, by0, by1 = 0;
+	stbtt_GetCodepointBitmapBox(
+		&uistate->font, c,
+		uistate->scale, uistate->scale,
+		&bx0, &by0,
+		&bx1, &by1
+		);
+
+	s32 width = bx1 - bx0;
+	s32 height = by1 - by0;
+
+        stbtt_MakeCodepointBitmap(
+                &uistate->font, 
+		bitmap_buffer,
+		width,
+		height,
+		width,
+                uistate->scale, 
+                uistate->scale,
+                c);
+
+        glTexSubImage3D(
+		GL_TEXTURE_2D_ARRAY,
+		0,
+		0, 0, // x, y offset
+		int(c),
+		width,
+          	height,
+          	1,
+          	GL_RED,
+          	GL_UNSIGNED_BYTE,
+          	bitmap_buffer
+		);
+        // set texture options
+        glTexParameteri(
+		GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE
+	);
+        glTexParameteri(
+                GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE
+                );
+        glTexParameteri(
+                GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR
+                );
+        glTexParameteri(
+                GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR
+                );
+
+        TextChar tc;
+        tc.size = Vec2{
+            (r32)width, (r32)height
+        };
+	tc.bbox0 = Vec2{
+	    (r32)bx0, (r32)by0
+	};
+	tc.bbox1 = Vec2{
+	    (r32)bx1, (r32)by1
+	};
+        tc.advance = advance;
+	tc.lsb = (s32)lsb;
+        uistate->char_map[c] = tc;
+    }
+
+    glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+
+    r32 vertices[] = {
+        0.0f, 1.0f,
+        0.0f, 0.0f,
+        1.0f, 1.0f,
+        1.0f, 0.0f
+    };
+
+    glGenVertexArrays(1, &(uistate->vao));
+    glGenBuffers(1, &(uistate->vbo));
+
+    glBindVertexArray(uistate->vao);
+    glBindBuffer(GL_ARRAY_BUFFER, uistate->vbo);
+    glBufferData(
+            GL_ARRAY_BUFFER, 
+	    sizeof(vertices), 
+	    vertices, 
+	    GL_STATIC_DRAW);
+
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, 0);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindVertexArray(0);
+}
+
+void gl_render_text(
+	GLRenderer *renderer, 
+	char *text,
+	Vec2 position, 
+	Vec3 color, 
+	r32 font_size) {
+    // render_text
+    glDisable(GL_DEPTH_TEST);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    glUseProgram(renderer->ui_text.sp);
+    if (renderer->ui_cam_update) {
+
+	glUniformMatrix4fv(
+		glGetUniformLocation(
+		    renderer->ui_text.sp, "View"),
+		1, GL_FALSE, renderer->ui_cam_view.buffer);
+
+	glUniformMatrix4fv(
+		glGetUniformLocation(
+		    renderer->ui_text.sp, "Projection"),
+		1, GL_FALSE, renderer->cam_proj.buffer);
+
+	renderer->ui_cam_update = 0;
+    }
+    glUniform3fv(
+	    glGetUniformLocation(
+		renderer->ui_text.sp, "TextColor"),
+	    1, color.data);
+    glBindVertexArray(renderer->ui_text.vao);
+    glBindTexture(
+	    GL_TEXTURE_2D_ARRAY, 
+	    renderer->ui_text.texture_atlas_id);
+    glBindBuffer(GL_ARRAY_BUFFER, renderer->ui_text.vbo);
+    glActiveTexture(GL_TEXTURE0);
+
+    u32 running_index = 0;
+    r32 startx = position.x;
+    r32 starty = position.y;
+    r32 linex = startx;
+    r32 liney = starty;
+    r32 render_scale = font_size/(r32)renderer->ui_text.pixel_size;
+    r32 font_scale = renderer->ui_text.scale*render_scale;
+    memset(renderer->ui_text.transforms, 0, renderer->ui_text.chunk_size);
+    memset(renderer->ui_text.char_indexes, 0, renderer->ui_text.chunk_size);
+
+    char *char_iter = text;
+    r32 baseline = -renderer->ui_text.bbox0.y*font_scale - font_size;
+    while (*char_iter != '\0') {
+	TextChar render_char = renderer->ui_text.char_map[*char_iter];
+	if (*char_iter == ' ') {
+	    linex += (font_scale * render_char.advance);
+	    char_iter++;
+	    continue;
+	}
+	if (*char_iter == '\t') {
+	    linex += (font_scale * render_char.advance);
+	    char_iter++;
+	    continue;
+	}
+	if (*char_iter == '\n') {
+	    linex = startx;
+	    liney = liney - font_scale * (renderer->ui_text.ascent - renderer->ui_text.descent + renderer->ui_text.linegap);
+	    char_iter++;
+	    continue;
+	}
+	r32 xpos = linex + (font_scale * render_char.lsb);
+	r32 ypos = liney + (baseline - render_scale*render_char.bbox0.y);
+
+	Mat4 sc = scaling_matrix4m(font_size, font_size, 1.0f);
+	Mat4 tr = translation_matrix4m(xpos, ypos, 0);
+	Mat4 model = multiply4m(tr, sc);
+	renderer->ui_text.transforms[running_index] = model;
+	renderer->ui_text.char_indexes[running_index] = 
+	    int(*char_iter);
+
+	linex += (font_scale * render_char.advance);
+	char prev_char = *char_iter;
+	char_iter++;
+	char curr_char = *char_iter;
+
+	if (curr_char) {
+	    s32 kern = font_scale * stbtt_GetCodepointKernAdvance(&renderer->ui_text.font, prev_char, curr_char);
+	    linex += kern;
+	}
+	running_index++;
+	if (running_index >= renderer->ui_text.chunk_size) {
+	    gl_text_flush(renderer, running_index);
+	    running_index = 0;
+	}
+    }
+    gl_text_flush(renderer, running_index);
+}
+
+void gl_text_flush(GLRenderer *renderer, u32 render_count) {
+    s32 transform_loc = glGetUniformLocation(
+	    renderer->ui_text.sp, "LetterTransforms");
+    glUniformMatrix4fv(
+	    transform_loc, 
+	    render_count,
+	    GL_FALSE, 
+	    &(renderer->ui_text.transforms[0].buffer[0])
+	    );
+
+    s32 texture_map_loc = glGetUniformLocation(
+	    renderer->ui_text.sp, "TextureMap");
+    glUniform1iv(
+	    texture_map_loc, 
+	    render_count, 
+	    renderer->ui_text.char_indexes);
+
+    glDrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 4, render_count);
+
+    memset(renderer->ui_text.transforms, 0, render_count);
+    memset(renderer->ui_text.char_indexes, 0, render_count);
+}

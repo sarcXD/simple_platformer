@@ -85,8 +85,8 @@ enum PlatformKey {
 struct TextChar {
   s64 lsb;
   s64 advance;
-  Vec2 box0;
-  Vec2 box1;
+  Vec2 bbox0;
+  Vec2 bbox1;
   Vec2 size;
 };
 
@@ -101,8 +101,8 @@ struct TextState {
   u32 vao;
   u32 vbo;
   u32 chunk_size;
-  IVec2 box0;
-  IVec2 box1;
+  IVec2 bbox0;
+  IVec2 bbox1;
   stbtt_fontinfo font;
   s32* char_indexes;
   Mat4* transforms;
@@ -662,9 +662,10 @@ int main(int argc, char* argv[])
     size_t fsize = 0;
     unsigned char *font_buffer = (unsigned char*)SDL_LoadFile("./assets/fonts/Roboto.ttf", &fsize);
     stbtt_InitFont(&renderer.ui_text.font, font_buffer, 0);
-    renderer.ui_text.pixel_size = 32*render_scale;
+
     renderer.ui_text.sp = ui_text_sp;
-    renderer.ui_text.chunk_size = 32;
+    renderer.ui_text.chunk_size = 128;
+    renderer.ui_text.pixel_size = 32*render_scale;
     renderer.ui_text.transforms = (Mat4*)malloc(
       renderer.ui_text.chunk_size*sizeof(Mat4)
     );
@@ -675,133 +676,7 @@ int main(int argc, char* argv[])
       128*sizeof(TextChar)
     );
 
-    // setup_text
-    TextState *uistate = &(renderer.ui_text);
-
-    uistate->scale = stbtt_ScaleForPixelHeight(&uistate->font, uistate->pixel_size);
-    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-
-    glGenTextures(1, &(uistate->texture_atlas_id));
-    glBindTexture(GL_TEXTURE_2D_ARRAY, uistate->texture_atlas_id);
-
-    // generate texture
-    glTexImage3D(
-            GL_TEXTURE_2D_ARRAY,
-            0,
-            GL_R8,
-            uistate->pixel_size,
-            uistate->pixel_size,
-            128,
-            0,
-            GL_RED,
-            GL_UNSIGNED_BYTE,
-            0);
-
-    s32 ascent, descent, linegap = 0;
-    stbtt_GetFontVMetrics(&uistate->font, &ascent, &descent, &linegap);
-    uistate->ascent = ascent;
-    uistate->descent = descent;
-    uistate->linegap = linegap;
-    s32 x0, y0, x1, y1 = 0;
-
-    stbtt_GetFontBoundingBox(&uistate->font, &x0, &y0, &x1, &y1);
-    uistate->box0 = IVec2{x0, y0};
-    uistate->box1 = IVec2{x1, y1};
-
-    u32 pixel_size = uistate->pixel_size;
-    unsigned char *bitmap_buffer = (unsigned char*)calloc(pixel_size * pixel_size, sizeof(unsigned char));
-    for (u32 c = 0; c < 128; c++)
-    {
-        // @resume: working on replicating the 
-        // freetype gl_setup_text function
-        s32 advance, lsb = 0;
-        stbtt_GetCodepointHMetrics(&uistate->font, c, &advance, &lsb);
-	s32 bx0, bx1, by0, by1 = 0;
-	stbtt_GetCodepointBitmapBox(
-		&uistate->font, c,
-		uistate->scale, uistate->scale,
-		&bx0, &by0,
-		&bx1, &by1
-		);
-
-	s32 width = bx1 - bx0;
-	s32 height = by1 - by0;
-
-        stbtt_MakeCodepointBitmap(
-                &uistate->font, 
-		bitmap_buffer,
-		width,
-		height,
-		width,
-                uistate->scale, 
-                uistate->scale,
-                c);
-
-        glTexSubImage3D(
-		GL_TEXTURE_2D_ARRAY,
-		0,
-		0, 0, // x, y offset
-		int(c),
-		width,
-          	height,
-          	1,
-          	GL_RED,
-          	GL_UNSIGNED_BYTE,
-          	bitmap_buffer
-		);
-        // set texture options
-        glTexParameteri(
-		GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE
-	);
-        glTexParameteri(
-                GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE
-                );
-        glTexParameteri(
-                GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR
-                );
-        glTexParameteri(
-                GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR
-                );
-
-        TextChar tc;
-        tc.size = Vec2{
-            (r32)width, (r32)height
-        };
-	tc.box0 = Vec2{
-	    (r32)bx0, (r32)by0
-	};
-	tc.box1 = Vec2{
-	    (r32)bx1, (r32)by1
-	};
-        tc.advance = advance;
-	tc.lsb = (s32)lsb;
-        uistate->char_map[c] = tc;
-    }
-
-    glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
-
-    r32 vertices[] = {
-        0.0f, 1.0f,
-        0.0f, 0.0f,
-        1.0f, 1.0f,
-        1.0f, 0.0f
-    };
-
-    glGenVertexArrays(1, &(uistate->vao));
-    glGenBuffers(1, &(uistate->vbo));
-
-    glBindVertexArray(uistate->vao);
-    glBindBuffer(GL_ARRAY_BUFFER, uistate->vbo);
-    glBufferData(
-            GL_ARRAY_BUFFER, 
-	    sizeof(vertices), 
-	    vertices, 
-	    GL_STATIC_DRAW);
-
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, 0);
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
-    glBindVertexArray(0);
+    gl_setup_text(&renderer.ui_text);
 }
 
   
@@ -1635,7 +1510,6 @@ int main(int argc, char* argv[])
 	gl_line_flush(&renderer);
     }
 
-#if 0
     // render_entities
     for (int i = 0; i < state.game_level.entity_count; i++) {
 	Entity entity = state.game_level.entities[i];
@@ -1654,114 +1528,19 @@ int main(int argc, char* argv[])
     }
 
     gl_cq_flush(&renderer);
-#endif
 
     array_clear(&renderer.cq_pos_batch);
     array_clear(&renderer.cq_color_batch);
     renderer.cq_batch_count = 0;
     
-    // render ui text
-    {
-	Vec3 color = Vec3{1.0f, 1.0f, 1.0f};
-	// render_text
-	glDisable(GL_DEPTH_TEST);
-	glEnable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-	glUseProgram(renderer.ui_text.sp);
-	if (renderer.ui_cam_update) {
-	    glUniformMatrix4fv(
-		    glGetUniformLocation(
-			renderer.ui_text.sp, "View"),
-		    1, GL_FALSE, renderer.ui_cam_view.buffer);
-	    glUniformMatrix4fv(
-		    glGetUniformLocation(
-			renderer.ui_text.sp, "Projection"),
-		    1, GL_FALSE, renderer.cam_proj.buffer);
-	    renderer.ui_cam_update = 0;
-	}
-	glUniform3fv(
-		glGetUniformLocation(
-		    renderer.ui_text.sp, "TextColor"),
-		1, color.data);
-	glBindVertexArray(renderer.ui_text.vao);
-	glBindTexture(
-		GL_TEXTURE_2D_ARRAY, 
-		renderer.ui_text.texture_atlas_id);
-	glBindBuffer(GL_ARRAY_BUFFER, renderer.ui_text.vbo);
-	glActiveTexture(GL_TEXTURE0);
-
-	u32 running_index = 0;
-	r32 startx = 0.0f;
-	r32 starty = 0.0f;
-	r32 linex = startx;
-	r32 font_size = 32.0f;
-	r32 render_scale = font_size/renderer.ui_text.pixel_size;
-	r32 scale = renderer.ui_text.scale*font_size/renderer.ui_text.pixel_size;
-	memset(
-		renderer.ui_text.transforms, 
-		0, 
-		renderer.ui_text.chunk_size);
-	memset(
-		renderer.ui_text.char_indexes,
-		0,
-		renderer.ui_text.chunk_size);
-	char *text = "qhick brown jumps over lazy dog";
-	char *char_iter = text;
-	r32 baseline = -renderer.ui_text.box0.y*scale - font_size;
-	while (*char_iter != '\0') {
-	    TextChar render_char = renderer.ui_text.char_map[*char_iter];
-	    r32 xpos = linex + (scale * render_char.lsb);
-	    r32 ypos = starty + (baseline - render_scale*render_char.box0.y);
-
-	    Mat4 sc = scaling_matrix4m(font_size, font_size, 1.0f);
-	    Mat4 tr = translation_matrix4m(xpos, ypos, 0);
-	    Mat4 model = multiply4m(tr, sc);
-	    renderer.ui_text.transforms[running_index] = model;
-	    renderer.ui_text.char_indexes[running_index] = 
-		int(*char_iter);
-
-	    linex += (scale * render_char.advance);
-	    char prev_char = *char_iter;
-	    char_iter++;
-	    char curr_char = *char_iter;
-
-	    if (curr_char) {
-		s32 kern = scale * stbtt_GetCodepointKernAdvance(&renderer.ui_text.font, prev_char, curr_char);
-		linex += kern;
-	    }
-	    running_index++;
-	}
-	u32 render_count = running_index;
-	r32 transform_loc = glGetUniformLocation(
-		renderer.ui_text.sp, "LetterTransforms");
-	glUniformMatrix4fv(
-		transform_loc, 
-		render_count,
-		GL_FALSE, 
-		&(renderer.ui_text.transforms[0].buffer[0])
-		);
-	r32 texture_map_loc = glGetUniformLocation(
-		renderer.ui_text.sp, "TextureMap");
-	glUniform1iv(
-		texture_map_loc, 
-		render_count, 
-		renderer.ui_text.char_indexes);
-	glDrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 4, render_count);
-	running_index = 0;
-	memset(renderer.ui_text.transforms, 0, render_count);
-	memset(renderer.ui_text.char_indexes, 0, render_count);
-    }
-    
-#if FREETYPE
     char level_state_output[50];
     sprintf(level_state_output, "is level clear = %d", state.level_state);
     gl_render_text(
 	    &renderer,
 	    level_state_output,
 	    Vec2{600.0f, 900.0f},
-	    28.0f,
-	    Vec3{0.0f, 0.0f, 0.0f});
+	    Vec3{0.0f, 0.0f, 0.0f},
+	    32.0f);
 
 
     if (is_collide_x || is_collide_y)
@@ -1769,58 +1548,34 @@ int main(int argc, char* argv[])
       gl_render_text(&renderer,
                      "is colliding",
                      Vec2{500.0f, 700.0f},      // position
-                     28.0f,                     // size
-                     Vec3{0.0f, 0.0f, 0.0f});   // color
-      
-      char movedir_output[50];
-      sprintf(movedir_output, "move_dir = %f", p_move_dir.x);
-      gl_render_text(&renderer,
-                     movedir_output,
-                     Vec2{500.0f, 60.0f},      // position
-                     28.0f,                     // size
-                     Vec3{0.0f, 0.0f, 0.0f});   // color
-
-      char speed_output[50];
-      sprintf(speed_output, "%f pps", state.player_velocity.x);
-      gl_render_text(&renderer,
-                     speed_output,
-                     Vec2{500.0f, 100.0f},      // position
-                     28.0f,                     // size
-                     Vec3{0.0f, 0.0f, 0.0f});   // color
+                     Vec3{0.0f, 0.0f, 0.0f},   // color
+                     28.0f);                    // size
     }
     
     char fmt_buffer[50];
-
     sprintf(fmt_buffer, "frametime: %f", timer.tDelta);
     gl_render_text(&renderer,
                    fmt_buffer,
                    Vec2{900.0f, 90.0f},      // position
-                   28.0f*render_scale,                     // size
-                   Vec3{0.0f, 0.0f, 0.0f});   // color
+                   Vec3{0.0f, 0.0f, 0.0f},
+		   28.0f*render_scale);   // color
     
-    //sprintf(fmt_buffer, "inside_teleporter: %d\nteleporting: %d", state.inside_teleporter, state.teleporting);
-    //gl_render_text(&renderer,
-    //               fmt_buffer,
-    //               Vec2{900.0f, 190.0f},      // position
-    //               28.0f*render_scale,                     // size
-    //               Vec3{0.0f, 0.0f, 0.0f});   // color
-
     sprintf(fmt_buffer, "GridX: %d, GridY: %d", mouse_position_clamped.x, mouse_position_clamped.y);
     gl_render_text(
 	    &renderer,
 	    fmt_buffer,
 	    Vec2{0.0f, 0.0f},
-	    28.0f*render_scale,
-	    Vec3{0.0f, 0.0f, 0.0f});
+	    Vec3{0.0f, 0.0f, 0.0f}, 
+	    28.0f*render_scale);
 
     sprintf(fmt_buffer, "WorldMouseX: %d, WorldMouseY: %d", mouse_position_world.x, mouse_position_world.y);
     gl_render_text(
 	    &renderer,
 	    fmt_buffer,
 	    Vec2{0.0f, 40.0f},
-	    28.0f*render_scale,
-	    Vec3{0.0f, 0.0f, 0.0f});
-#endif
+	    Vec3{0.0f, 0.0f, 0.0f}, 
+	    28.0f*render_scale);
+	    
 
     SDL_GL_SwapWindow(window);
 

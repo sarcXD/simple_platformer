@@ -37,6 +37,9 @@ in the level file.
 - Refactor level loading functions
 
 DOING:
+- Port text rendering to stb_truetype
+    - multiline rendering
+    - ignore spaces
 
 TODO:
 - Making levels
