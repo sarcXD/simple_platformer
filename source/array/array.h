@@ -1,15 +1,15 @@
 #pragma once
 
 struct r32_array {
-  r32 *buffer;
   size_t size;
   size_t capacity;
+  r32 *buffer;
 };
 
 struct u32_array {
-    u32 *buffer;
     size_t size;
     size_t capacity;
+    u32 *buffer;
 };
 
 // @r32_array

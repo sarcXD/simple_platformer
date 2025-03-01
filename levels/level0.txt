@@ -1,21 +1,10 @@
 # level format
 0x1
 #   type    posx    posy    sizex   sizey
-    0	    150	    70	    1	    1
-    1 	    0	    0	    25	    1
-    1	    0	    0	    1	    25
-    1 	    256	    128	    1	    1
-    1 	    448	    256	    1	    1
-    1 	    640	    384     10	    1
-    2 	    900	    800     1	    1
-    1 	    100    1000     25	    1
-    1 	    1500    0	    1	    25
-# == gameplay elements ==
-# gravity inverter
-#   type    posx    posy    sizex   sizey
-    3	    640	    64	    1	    1
-# teleporter
-#   type    posx    posy    sizex   sizey   id	    link_id
-    4 	    832	    64	    1	    2	    50	    51
-    4 	    832	    448	    1	    2	    51	    50
+    0	    192	    64	    1	    1
+    1 	    64	    0	    18	    1
+    1	    64	    448	    18	    1
+    1	    64	    64	    1	    6
+    1	    1152    64	    1	    6
+    2	    960    256	    1	    1
 

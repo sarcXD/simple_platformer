@@ -1,4 +1,11 @@
+# level format version number
 0x1
-1 0	0   10	1
-1 256	128 1	1
-0 128	64  1 	1
+# entity_id posx    poxy    sizex   sizey
+0 	    320	    64      1	    1
+1	    192	    0	    16	    1
+1	    192	    832	    16	    1
+1 	    832	    192	    5	    1
+1 	    192	    0	    1	    14
+1	    1152    0	    1	    14
+2	    512    576	    1	    1
+

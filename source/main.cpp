@@ -164,13 +164,23 @@ struct EntityInfoArr {
     u32 capacity;
 };
 
+#define ARR_SIZE(arr) (sizeof(arr)/sizeof((arr)[0]))
 #define LEVEL_MAX_ENTITIES 100
-const int level_count = 2;
 static const char* base_level_path = "./levels/";
-static const char *level_names[20] = {
-    "level1.txt",
+static const char *level_names[] = {
     "level0.txt",
+    "level1.txt",
+    "level2.txt",
+    "level3.txt",
+    "level4.txt",
+    "level5.txt",
+    "level6.txt",
+    "level7.txt",
+    "level8.txt",
+    "level9.txt",
+    "level10.txt",
 };
+const int level_count = ARR_SIZE(level_names);
 
 struct Level0x1 {
     u32 version = 0x1;
@@ -719,6 +729,8 @@ int main(int argc, char* argv[])
   state.level_path_base = str256(base_level_path);
 
   // @section: gameplay variables
+  u32 jump_count = 1;
+  r64 jump_timer = 0;
   r32 motion_scale = 2.0f;
   state.gravity_diry = 1.0f;
   r32 fall_accelx = 3.0f*motion_scale;
@@ -768,6 +780,8 @@ int main(int argc, char* argv[])
   b8 was_colliding = 0;
   b8 collidex = 0;
   b8 collidey = 0;
+    b8 is_collide_bottom = 0;
+    b8 is_collide_top = 0;
   b8 is_gravity = 0;
   
   b8 game_running = 1;
@@ -840,8 +854,8 @@ int main(int argc, char* argv[])
 	      mouse_position_world.x = mouse_position.x + (s32)renderer.cam_pos.x;
 	      mouse_position_world.y = mouse_position.y + (s32)renderer.cam_pos.y;
 	      // clamp mouse position based off of the grids we draw (this will make level object placement easier)
-	      mouse_position_clamped.x = mouse_position_world.x - (mouse_position_world.x % (s32)(atom_size.x));
-	      mouse_position_clamped.y = mouse_position_world.y - (mouse_position_world.y % (s32)(atom_size.y));
+	      mouse_position_clamped.x = mouse_position_world.x - ((mouse_position_world.x) % (s32)(atom_size.x));
+	      mouse_position_clamped.y = mouse_position_world.y - ((mouse_position_world.y) % (s32)(atom_size.y));
 
 	  } break;
         case (SDL_KEYDOWN):
@@ -957,14 +971,6 @@ int main(int argc, char* argv[])
       state.effective_force = 0.0f;
       p_motion_dir = {0};
     }
-    if (state.flip_gravity)
-    {
-	// @resume: I need to add a buffer zone, something like some iframes, so that once I touch a gravity block
-	// I don't reflip gravity if I am in contact with the block for 1-2 seconds right after first colliding
-	state.gravity_diry = state.gravity_diry > 0.0f ? -0.8f : 1.0f;
-	//gravity_diry *= -1.0f;
-	state.flip_gravity = 0;
-    }
     if (controller.move_up)
     {
       p_move_dir.y = 1.0f;
@@ -996,7 +1002,33 @@ int main(int argc, char* argv[])
       is_key_down_x = true;
     }
 
+    if (controller.jump && jump_count > 0 && jump_timer > 100.0f) {
+	controller.jump = 1;
+	jump_count--;
+	jump_timer = 0.0f;
+    } else {
+	controller.jump = 0;
+    }
+
+    // jump increment
+    jump_timer += timer.tDeltaMS;
+    if (is_collide_bottom == 1 && state.gravity_diry > 0.0f) {
+	jump_count = 1;
+    }
+    if (is_collide_top == 1 && state.gravity_diry < 0.0f) {
+	jump_count = 1;
+    }
+
+
     // @section: gravity
+    if (state.flip_gravity)
+    {
+	// @resume: I need to add a buffer zone, something like some iframes, so that once I touch a gravity block
+	// I don't reflip gravity if I am in contact with the block for 1-2 seconds right after first colliding
+	state.gravity_diry = state.gravity_diry > 0.0f ? -0.8f : 1.0f;
+	//gravity_diry *= -1.0f;
+	state.flip_gravity = 0;
+    }
     Vec2 pd_1 = Vec2{0.0f, 0.0f};
     p_motion_dir = {0};
     if (collidey)
@@ -1151,6 +1183,8 @@ int main(int argc, char* argv[])
     
     b8 is_collide_x = 0;
     b8 is_collide_y = 0;
+    is_collide_bottom = 0;
+    is_collide_top = 0;
 
     for (u32 i = 0; i < state.obstacles.size; i++) {
 	// @step: check_obstacle_collisions
@@ -1181,20 +1215,24 @@ int main(int argc, char* argv[])
 	r32 t_right   = target.rt.x;
 	r32 t_top     = target.rt.y;
 
-	b8 prev_collide_x = !(prev_left > t_right || prev_right < t_left);
-	b8 new_collide_target_top = (p_bottom < t_top && p_top > t_top);
-	b8 new_collide_target_bottom = (p_top > t_bottom && p_bottom < t_bottom);
-	if (prev_collide_x && new_collide_target_top) {
-	  t_collide_top = 1;
-	}
-	if (prev_collide_x && new_collide_target_bottom) {
-	  t_collide_bottom = 1;
+	if (!is_collide_y) {
+	    b8 prev_collide_x = !(prev_left > t_right || prev_right < t_left);
+	    b8 new_collide_target_top = (p_bottom < t_top && p_top > t_top);
+	    b8 new_collide_target_bottom = (p_top > t_bottom && p_bottom < t_bottom);
+	    if (prev_collide_x && new_collide_target_top) {
+	      t_collide_top = 1;
+	    }
+	    if (prev_collide_x && new_collide_target_bottom) {
+	      t_collide_bottom = 1;
+	    }
 	}
 
-	b8 prev_collide_y = !(prev_top < t_bottom + 0.2f || prev_bottom > t_top);
-	b8 new_collide_x = !(p_right < t_left || p_left > t_right);
-	if (prev_collide_y && new_collide_x) {
-	  t_collide_x = 1;
+	if (1 || is_collide_x) {
+	    b8 prev_collide_y = !(prev_top < t_bottom + 0.2f || prev_bottom > t_top);
+	    b8 new_collide_x = !(p_right < t_left || p_left > t_right);
+	    if (prev_collide_y && new_collide_x) {
+	      t_collide_x = 1;
+	    }
 	}
 
 	// @func: update_player_positions_if_sides_colliding
@@ -1211,13 +1249,15 @@ int main(int argc, char* argv[])
 	    // (this will collapse various cases where the player is trying to reflip gravity, 
 	    // but immediate contact after flipping makes this awkward and infeasible)
 	    if (state.gravity_flip_timer <= 0) {
-		state.gravity_flip_timer = 1000.0f;
+		state.gravity_flip_timer = 500.0f;
 		state.flip_gravity = 1;
 	    }
 	}
 
 	is_collide_x = is_collide_x || t_collide_x;
 	is_collide_y = is_collide_y || t_collide_top || t_collide_bottom;
+	is_collide_bottom = is_collide_bottom || t_collide_top;
+	is_collide_top = is_collide_top || t_collide_bottom;
     }
 
     if (!is_collide_x) {
@@ -1228,7 +1268,7 @@ int main(int argc, char* argv[])
     }
 
     // check collision with goal
-    if (!is_collide_x && !is_collide_y) {
+    {
 	Entity goal = state.game_level.entities[state.goal.index];
 	Rect target = goal.bounds;
 

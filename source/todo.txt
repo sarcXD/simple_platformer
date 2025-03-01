@@ -38,7 +38,8 @@ in the level file.
 - Port text rendering to stb_truetype
 
 DOING:
+- Making levels
 
 TODO:
-- Making levels
+- add panning from level goal to player position when loading a new level
 
