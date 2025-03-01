@@ -1227,7 +1227,7 @@ int main(int argc, char* argv[])
 	    }
 	}
 
-	if (1 || is_collide_x) {
+	{
 	    b8 prev_collide_y = !(prev_top < t_bottom + 0.2f || prev_bottom > t_top);
 	    b8 new_collide_x = !(p_right < t_left || p_left > t_right);
 	    if (prev_collide_y && new_collide_x) {
