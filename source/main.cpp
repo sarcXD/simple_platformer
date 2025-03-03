@@ -179,6 +179,9 @@ static const char *level_names[] = {
     "level8.txt",
     "level9.txt",
     "level10.txt",
+    "hello_portal.txt",
+    "portal_wind_up_no_jump.txt",
+    "portal_thereNback.txt",
 };
 const int level_count = ARR_SIZE(level_names);
 
@@ -515,8 +518,10 @@ void setup_level(GameState *state, GLRenderer *renderer, Arena *arena)
     load_level(state, arena, level_path);
 
     Entity player = state->game_level.entities[state->player.index];
-    renderer->cam_pos.x = player.position.x - (40.0f * state->render_scale.x);
-    renderer->cam_pos.y = player.position.y - (40.0f * state->render_scale.y);
+    Entity goal = state->game_level.entities[state->goal.index];
+    Vec2 scr_dims;
+    renderer->cam_pos.x = goal.position.x - (state->screen_size.x/2.0f * state->render_scale.x);
+    renderer->cam_pos.y = goal.position.y - (state->screen_size.y/2.0f * state->render_scale.y);
     state->effective_force = 0.0f;
     state->player_velocity = Vec2{0.0f, 0.0f};
     state->gravity_diry = 1.0f;
@@ -735,6 +740,7 @@ int main(int argc, char* argv[])
   state.gravity_diry = 1.0f;
   r32 fall_accelx = 3.0f*motion_scale;
   r32 move_accelx = 4.0f*motion_scale;
+  r32 max_speedx = 5.0f*motion_scale;
   r32 freefall_accel = -11.8f*motion_scale;
   r32 jump_force = 6.5f*motion_scale;
   state.effective_force = 0.0f;
@@ -1054,7 +1060,7 @@ int main(int argc, char* argv[])
 		      state.effective_force + p_move_dir.x*move_accelx*timer.tDelta
 		      );
 	      updated_force = clampf(
-		      updated_force, -move_accelx, move_accelx
+		      updated_force, -max_speedx, max_speedx
 		      );
 	      state.effective_force = updated_force;
 	  } else {
@@ -1313,19 +1319,19 @@ int main(int argc, char* argv[])
 	inside_teleporter_now |= t_collide;
 	
 	// check if player x-axis is within teleport x-axis
-	Vec2 displacement;
-	displacement.x = player.position.x - e.position.x;
-	displacement.y = player.position.y - e.position.y;
+	Vec2 player_center = player.position.v2() + player.size/2.0f;
+	Vec2 entity_center = e.position.v2() + e.size/2.0f;
+	Vec2 displacement = player_center - entity_center;
 
-	if (ABS(displacement.x) <= 5.0f*render_scale) {
+	if (ABS(displacement.x) <= 5.0f*render_scale || ABS(displacement.y) <= 5.0f*render_scale) {
 	    teleporting_now = 1;
 	    {
 		// @step: teleport_player
 		Entity teleport_to = get_entity_by_id(state, e.link_id);
+		Vec2 teleport_to_center = teleport_to.position.v2() + teleport_to.size/2.0f;
 		// set next position
-		teleported_position.x = teleport_to.position.x + displacement.x;
-		teleported_position.y = teleport_to.position.y + displacement.y;
-		// add displacement so it gives a smooth effect of just moving over to someplace
+		Vec2 teleported_position_center = teleport_to_center + displacement;
+		teleported_position = teleported_position_center - player.size/2.0f;
 	    }
 	}
     }
