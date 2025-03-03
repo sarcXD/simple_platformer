@@ -1,6 +1,7 @@
 #ifndef MATH_H
 #define MATH_H
 
+#include "SDL2/SDL_assert.h"
 #include <math.h>
 
 #define PI 3.14159265358979323846264338327950288f
