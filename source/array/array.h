@@ -1,5 +1,8 @@
 #pragma once
 
+#include "../core.h"
+#include "../memory/arena.h"
+
 struct r32_array {
   size_t size;
   size_t capacity;

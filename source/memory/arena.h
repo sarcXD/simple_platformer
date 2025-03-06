@@ -1,6 +1,8 @@
 #pragma once
 
 #include <assert.h>
+#include <string.h>
+#include "../core.h"
 
 #ifndef ALIGNMENT
 #define ALIGNMENT (2*sizeof(void*))

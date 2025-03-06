@@ -1,3 +1,6 @@
+#include <stdio.h>
+#include "glad/glad.h"
+#include "SDL2/SDL_rwops.h"
 #include "renderer.h"
 
 u32 gl_shader_program(char* vs, char* fs)

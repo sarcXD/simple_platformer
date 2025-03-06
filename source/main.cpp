@@ -1,31 +1,22 @@
+//-----------------------------
+#include <stdio.h>
+//-----------------------------
+
+
+//-----------------------------
 #include <SDL2/SDL.h>
 #include <glad/glad.h>
+//-----------------------------
 
-#include <stdio.h>
-#include <memory.h>
-
-#define STB_TRUETYPE_IMPLEMENTATION
-#include "stb_truetype.h"
-
-#include <stdint.h>
-
-typedef uint8_t  u8;
-typedef uint16_t u16;
-typedef uint32_t u32;
-typedef uint64_t u64;
-
-typedef int8_t   s8;
-typedef int16_t  s16;
-typedef int32_t  s32;
-typedef int64_t  s64;
-
-typedef float    r32;
-typedef double   r64;
-
-typedef u8       b8;
-
+//-----------------------------
+#include "core.h"
 #include "memory/arena.h"
 #include "math.h"
+#include "array/array.cpp"
+#include "renderer/renderer.h"
+#include "renderer/renderer.cpp"
+//-----------------------------
+
 
 struct Str256 {
     char buffer[256];
@@ -81,41 +72,6 @@ enum PlatformKey {
   PK_S = 3,
   PK_D = 4,
 };
-
-struct TextChar {
-  s64 lsb;
-  s64 advance;
-  Vec2 bbox0;
-  Vec2 bbox1;
-  Vec2 size;
-};
-
-struct TextState {
-  r32 scale;
-  u32 pixel_size;
-  s32 ascent;
-  s32 descent;
-  s32 linegap;
-  u32 texture_atlas_id;
-  u32 sp;
-  u32 vao;
-  u32 vbo;
-  u32 chunk_size;
-  IVec2 bbox0;
-  IVec2 bbox1;
-  stbtt_fontinfo font;
-  s32* char_indexes;
-  Mat4* transforms;
-  TextChar* char_map;
-};
-
-#define BATCH_SIZE 2000
-
-#define KB(x) (1024 * (x))
-#define MB(x) (1024 * KB((x)))
-#define GB(x) (1024 * MB((x)))
-
-#include "array/array.cpp"
 
 struct Rect {
   Vec2 lb;
@@ -193,46 +149,6 @@ struct Level0x1 {
 
 typedef struct Level0x1 Level;
 
-struct GLRenderer {
-  // colored quad
-  b8  cq_init;
-  u32 cq_sp;
-  u32 cq_vao;
-  // camera
-  Vec3 preset_up_dir;
-  Mat4 cam_proj;
-  // ui camera
-  b8 ui_cam_update;
-  Vec3 ui_cam_pos;
-  Vec3 ui_cam_look;
-  Mat4 ui_cam_view;
-  // game camera
-  b8   cam_update;
-  Vec3 cam_pos;
-  Vec3 cam_look;
-  Mat4 cam_view;
-  // Batched cq
-  // batching buffer
-  u32 cq_batch_sp;
-  u32 cq_batch_vao;
-  u32 cq_batch_vbo;
-  u32 cq_batch_count;
-  r32_array cq_pos_batch;
-  r32_array cq_color_batch;
-  // Batched line
-  u32 line_sp;
-  u32 line_vao;
-  u32 line_vbo;
-  u32 line_batch_count;
-  r32_array line_pos_batch;
-  r32_array line_color_batch;
-
-  // ui text 
-  TextState ui_text;
-}; 
-
-#include "renderer/renderer.h"
-#include "renderer/renderer.cpp"
 
 struct Controller {
   b8 move_up;
@@ -517,7 +433,6 @@ void setup_level(GameState *state, GLRenderer *renderer, Arena *arena)
 
     load_level(state, arena, level_path);
 
-    Entity player = state->game_level.entities[state->player.index];
     Entity goal = state->game_level.entities[state->goal.index];
     Vec2 scr_dims;
     renderer->cam_pos.x = goal.position.x - (state->screen_size.x/2.0f * state->render_scale.x);
