@@ -396,8 +396,12 @@ void load_level(GameState *state, Arena *level_arena, Str256 level_path) {
     state->obstacles.capacity = state->game_level.entity_count;
     for (u32 i = 0; i < state->game_level.entity_count; i++) {
 	Entity e = state->game_level.entities[i];
-	e.position = e.raw_position;
-	e.size = e.raw_size * state->atom_size * state->render_scale.x;
+	e.position = Vec3{
+	    e.raw_position.x * state->render_scale.x,
+	    e.raw_position.y * state->render_scale.y,
+	    e.raw_position.z
+	};
+	e.size = e.raw_size * state->atom_size;
 	e.bounds = rect(e.position, e.size);
 
 	EntityInfo o;
@@ -483,11 +487,11 @@ Vec2 get_screen_position_from_percent(GameState state, Vec2 v) {
 
 int main(int argc, char* argv[])
 {
-  u32 base_scr_width = 1024;
-  u32 base_scr_height = 768;
+    u32 scr_width = 1920;
+    u32 scr_height = 1080;
 
-  u32 scr_width = 1280;
-  u32 scr_height = 960;
+    u32 render_width = 2560;
+    u32 render_height = 1440;
   
   {
       // entity configs setup
@@ -514,15 +518,19 @@ int main(int argc, char* argv[])
     return -1;
   }
   
-  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 4);
-  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 5);
+  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
   SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
   
   SDL_Window* window = SDL_CreateWindow("simple platformer",
                                         SDL_WINDOWPOS_UNDEFINED, 
                                         SDL_WINDOWPOS_UNDEFINED,
-                                        scr_width, scr_height,
-                                        SDL_WINDOW_OPENGL);
+                                        render_width, render_height,
+                                        SDL_WINDOW_OPENGL|SDL_WINDOW_FULLSCREEN_DESKTOP);
+    s32 window_ind = SDL_GetWindowDisplayIndex(window);
+    SDL_DisplayMode display_mode;
+    SDL_GetCurrentDisplayMode(window_ind, &display_mode);
+
   SDL_GLContext context = SDL_GL_CreateContext(window);
   if (!context)
   {
@@ -583,7 +591,7 @@ int main(int argc, char* argv[])
   gl_setup_line(&renderer, cq_batch_sp);
   
   
-  r32 render_scale = 1.0f; //(r32)scr_width / (r32)base_scr_width;
+  Vec2 render_scale = Vec2{(r32)render_width/scr_width, (r32)render_height/scr_height};
 {
     // ==========
     // setup text
@@ -595,7 +603,7 @@ int main(int argc, char* argv[])
 
     renderer.ui_text.sp = ui_text_sp;
     renderer.ui_text.chunk_size = 128;
-    renderer.ui_text.pixel_size = 32*render_scale;
+    renderer.ui_text.pixel_size = 32*render_scale.x;
     renderer.ui_text.transforms = (Mat4*)malloc(
       renderer.ui_text.chunk_size*sizeof(Mat4)
     );
@@ -622,8 +630,8 @@ int main(int argc, char* argv[])
     add3v(renderer.cam_pos, renderer.cam_look), renderer.preset_up_dir
   );
   renderer.cam_proj = orthographic4m(
-    0.0f, (r32)scr_width*render_scale,
-    0.0f, (r32)scr_height*render_scale,
+    0.0f, (r32)render_width,
+    0.0f, (r32)render_height,
     0.1f, 15.0f
   );
   // fixed_screen_camera
@@ -638,20 +646,20 @@ int main(int argc, char* argv[])
   // object placement should be in pixels 
   // in order to scale to different resolutions it should be multiplied by
   // scaling factor
-  Vec2 atom_size = Vec2{64.0f, 64.0f};
+  Vec2 atom_size = Vec2{64.0f, 64.0f}*render_scale;
 
   GameState state = {0};
   state.atom_size = atom_size;
   state.world_size = Vec2{(r32)scr_width, (r32)scr_height};
   state.screen_size = Vec2{(r32)scr_width, (r32)scr_height};
-  state.render_scale = vec2(render_scale);
+  state.render_scale = render_scale;
   Vec2 camera_screen_size = state.screen_size * state.render_scale;
   state.level_path_base = str256(base_level_path);
 
   // @section: gameplay variables
   u32 jump_count = 1;
   r64 jump_timer = 0;
-  r32 motion_scale = 2.0f;
+  r32 motion_scale = 2.0f*state.render_scale.x;
   state.gravity_diry = 1.0f;
   r32 fall_accelx = 3.0f*motion_scale;
   r32 move_accelx = 4.0f*motion_scale;
@@ -764,7 +772,7 @@ int main(int argc, char* argv[])
       {
         case (SDL_QUIT):
           {
-            game_running = 0;
+		game_running = 0;
           } break;
 	case (SDL_MOUSEMOTION):
 	  {
@@ -1080,7 +1088,7 @@ int main(int argc, char* argv[])
     {
 	// @no_clip_movement
         Vec2 dir = get_move_dir(controller);
-        pd_1 = dir * 8.0f * render_scale;
+        pd_1 = dir * 8.0f * render_scale.x;
         if (pd_1.x < 0.0f) {
           p_motion_dir.x = -1.0f;
         } else if (pd_1.x > 0.0f) {
@@ -1238,7 +1246,7 @@ int main(int argc, char* argv[])
 	Vec2 entity_center = e.position.v2() + e.size/2.0f;
 	Vec2 displacement = player_center - entity_center;
 
-	if (ABS(displacement.x) <= 5.0f*render_scale || ABS(displacement.y) <= 5.0f*render_scale) {
+	if (ABS(displacement.x) <= 5.0f*render_scale.x || ABS(displacement.y) <= 5.0f*render_scale.x) {
 	    teleporting_now = 1;
 	    {
 		// @step: teleport_player
@@ -1301,8 +1309,8 @@ int main(int argc, char* argv[])
 
 	// @step: player is at the edge of the screen
 	// get players visible bounds (padding around the player to consider it be visible for the camera)
-	Vec2 vis_lb = player.bounds.lb - (Vec2{120.0f, 60.0f} * state.render_scale);
-	Vec2 vis_rt = player.bounds.rt + (Vec2{120.0f, 60.0f} * state.render_scale);
+	Vec2 vis_lb = player.bounds.lb - (Vec2{120.0f, 60.0f} * state.render_scale.x);
+	Vec2 vis_rt = player.bounds.rt + (Vec2{120.0f, 60.0f} * state.render_scale.y);
 	Rect vis_bounds;
 	vis_bounds.lb = vis_lb;
 	vis_bounds.rt = vis_rt;
@@ -1519,7 +1527,7 @@ int main(int argc, char* argv[])
                    fmt_buffer,
                    Vec2{900.0f, 90.0f},      // position
                    Vec3{0.0f, 0.0f, 0.0f},
-		   28.0f*render_scale);   // color
+		   28.0f*render_scale.x);   // color
     
     sprintf(fmt_buffer, "GridX: %d, GridY: %d", mouse_position_clamped.x, mouse_position_clamped.y);
     gl_render_text(
@@ -1527,7 +1535,7 @@ int main(int argc, char* argv[])
 	    fmt_buffer,
 	    Vec2{0.0f, 0.0f},
 	    Vec3{0.0f, 0.0f, 0.0f}, 
-	    28.0f*render_scale);
+	    28.0f*render_scale.x);
 
     sprintf(fmt_buffer, "WorldMouseX: %d, WorldMouseY: %d", mouse_position_world.x, mouse_position_world.y);
     gl_render_text(
@@ -1535,7 +1543,7 @@ int main(int argc, char* argv[])
 	    fmt_buffer,
 	    Vec2{0.0f, 40.0f},
 	    Vec3{0.0f, 0.0f, 0.0f}, 
-	    28.0f*render_scale);
+	    28.0f*render_scale.x);
 	    
 
     SDL_GL_SwapWindow(window);
