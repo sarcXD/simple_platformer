@@ -36,10 +36,13 @@ in the level file.
 - Fix collision for 1 block movement
 - Refactor level loading functions
 - Port text rendering to stb_truetype
-
-DOING:
 - Making levels
 
+DOING:
+
 TODO:
-- add panning from level goal to player position when loading a new level
+- MENU SCREEN
+- UI BUTTON
+- DISPLAY SETTINGS SCREEN
+- Set display resolutions and auto resizing of data
 

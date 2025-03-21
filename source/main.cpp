@@ -9,6 +9,8 @@
 //-----------------------------
 
 //-----------------------------
+#include "SDL2/SDL_keycode.h"
+#include "SDL2/SDL_video.h"
 #include "core.h"
 #include "memory/arena.h"
 #include "math.h"
@@ -201,7 +203,6 @@ void enforce_frame_rate(FrameTimer *ft, u32 target) {
 
 struct GameState {
   // the default size the game is designed around
-  Vec2 world_size;
   Vec2 screen_size;
   // the scaling factor to increase/decrease size of game assets
   Vec2 render_scale;
@@ -485,13 +486,12 @@ Vec2 get_screen_position_from_percent(GameState state, Vec2 v) {
   return screen_pos;
 }
 
+// @section: main
 int main(int argc, char* argv[])
 {
-    u32 scr_width = 1920;
-    u32 scr_height = 1080;
+    Vec2 scr_dims = Vec2{1920, 1080};
 
-    u32 render_width = 2560;
-    u32 render_height = 1440;
+    Vec2 render_dims = Vec2{1280, 720};
   
   {
       // entity configs setup
@@ -525,11 +525,8 @@ int main(int argc, char* argv[])
   SDL_Window* window = SDL_CreateWindow("simple platformer",
                                         SDL_WINDOWPOS_UNDEFINED, 
                                         SDL_WINDOWPOS_UNDEFINED,
-                                        render_width, render_height,
-                                        SDL_WINDOW_OPENGL|SDL_WINDOW_FULLSCREEN_DESKTOP);
-    s32 window_ind = SDL_GetWindowDisplayIndex(window);
-    SDL_DisplayMode display_mode;
-    SDL_GetCurrentDisplayMode(window_ind, &display_mode);
+                                        render_dims.x, render_dims.y,
+                                        SDL_WINDOW_OPENGL | SDL_WINDOW_FULLSCREEN_DESKTOP);
 
   SDL_GLContext context = SDL_GL_CreateContext(window);
   if (!context)
@@ -591,7 +588,7 @@ int main(int argc, char* argv[])
   gl_setup_line(&renderer, cq_batch_sp);
   
   
-  Vec2 render_scale = Vec2{(r32)render_width/scr_width, (r32)render_height/scr_height};
+  Vec2 render_scale = Vec2{(r32)render_dims.x/scr_dims.x, (r32)render_dims.y/scr_dims.y};
 {
     // ==========
     // setup text
@@ -630,8 +627,8 @@ int main(int argc, char* argv[])
     add3v(renderer.cam_pos, renderer.cam_look), renderer.preset_up_dir
   );
   renderer.cam_proj = orthographic4m(
-    0.0f, (r32)render_width,
-    0.0f, (r32)render_height,
+    0.0f, (r32)render_dims.x,
+    0.0f, (r32)render_dims.y,
     0.1f, 15.0f
   );
   // fixed_screen_camera
@@ -650,8 +647,7 @@ int main(int argc, char* argv[])
 
   GameState state = {0};
   state.atom_size = atom_size;
-  state.world_size = Vec2{(r32)scr_width, (r32)scr_height};
-  state.screen_size = Vec2{(r32)scr_width, (r32)scr_height};
+  state.screen_size = scr_dims;
   state.render_scale = render_scale;
   Vec2 camera_screen_size = state.screen_size * state.render_scale;
   state.level_path_base = str256(base_level_path);
@@ -715,46 +711,8 @@ int main(int argc, char* argv[])
   
   b8 game_running = 1;
 
+  b8 game_play = 1;
   FrameTimer timer = frametimer();
-
-#if AUDIO
-  // @resume: audio has clicky sound, I need to figure generate audio clips that are better.
-  // Why is this difficult
-
-  // @section: audio_setup
-  ma_result result;
-  ma_engine engine;
-
-  result = ma_engine_init(NULL, &engine);
-  if (result != MA_SUCCESS) {
-      SDL_Log("Failed to initialise audio engine\n");
-      return -1;
-  }
-
-  ma_sound jump_sound;
-  ma_sound landing_sound;
-  ma_sound level_complete_sound;
-  const char *sound_path = "assets/audio/jump.wav";
-  result = ma_sound_init_from_file(&engine, sound_path, 0, NULL, NULL, &jump_sound);
-  if (result != MA_SUCCESS) {
-      SDL_Log("Failed to load sound: %s\n", sound_path);
-      return -1;
-  }
-
-  sound_path = "assets/audio/landing.wav";
-  result = ma_sound_init_from_file(&engine, sound_path, 0, NULL, NULL, &landing_sound);
-  if (result != MA_SUCCESS) {
-      SDL_Log("Failed to load sound: %s\n", sound_path);
-      return -1;
-  }
-
-  sound_path = "assets/audio/level_complete.wav";
-  result = ma_sound_init_from_file(&engine, sound_path, 0, NULL, NULL, &level_complete_sound);
-  if (result != MA_SUCCESS) {
-      SDL_Log("Failed to load sound: %s\n", sound_path);
-      return -1;
-  }
-#endif
 
   while (game_running) 
   {
@@ -778,7 +736,7 @@ int main(int argc, char* argv[])
 	  {
 	      SDL_GetMouseState(&mouse_position.x, &mouse_position.y);
 	      // flip mouse y to map it Y at Top -> Y at Bottom (like in maths)
-	      mouse_position.y = scr_height*state.render_scale.y - mouse_position.y;
+	      mouse_position.y = render_dims.y - mouse_position.y;
 	      // get mouse world position
 	      mouse_position_world.x = mouse_position.x + (s32)renderer.cam_pos.x;
 	      mouse_position_world.y = mouse_position.y + (s32)renderer.cam_pos.y;
@@ -789,6 +747,68 @@ int main(int argc, char* argv[])
 	  } break;
         case (SDL_KEYDOWN):
           {
+	    if (ev.key.keysym.sym == SDLK_f)
+	    {
+		// maximise/minimize
+#if 1
+		// @note: This is janky, so will need to find some other workaround for this.
+		// get window display index
+		s32 display_ind = SDL_GetWindowDisplayIndex(window);
+		SDL_Rect win_rect;
+		s8 res = SDL_GetDisplayBounds(display_ind, &win_rect);
+		if (!res) {
+		    static bool fullscreen = true;
+		    int desktop_flag = fullscreen ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP;
+		    SDL_SetWindowFullscreen(window, desktop_flag);
+		    int ww, wh = 0;
+		    SDL_SetWindowSize(window, render_dims.x, render_dims.y);
+		    fullscreen = !fullscreen;
+		    // @note: I may need to recreate the entire opengl context and what not
+#if 0
+		    context = SDL_GL_CreateContext(window);
+		    SDL_GL_MakeCurrent(window, context);
+		    // load glad
+		    if (!gladLoadGLLoader((GLADloadproc)SDL_GL_GetProcAddress)) {
+			    printf("ERROR :: Failed to initialize Glad\n");
+			    return -1;
+		    }
+		    // vsync controls: 0 = OFF | 1 = ON (Default)
+		    SDL_GL_SetSwapInterval(0);
+		      
+		      quad_sp = gl_shader_program_from_path(
+			"./source/shaders/colored_quad.vs.glsl", 
+			"./source/shaders/colored_quad.fs.glsl"
+		      );
+		      ui_text_sp = gl_shader_program_from_path(
+			"./source/shaders/ui_text.vs.glsl",
+			"./source/shaders/ui_text.fs.glsl"
+		      );
+		      cq_batch_sp = gl_shader_program_from_path(
+			"./source/shaders/cq_batched.vs.glsl",
+			"./source/shaders/cq_batched.fs.glsl"
+		      );
+		      quad_vao = gl_setup_colored_quad(quad_sp);
+		      renderer.cq_sp = quad_sp;
+		      renderer.cq_vao = quad_vao;
+
+		      renderer.cq_batch_sp = cq_batch_sp;
+		      gl_setup_colored_quad_optimized(&renderer, cq_batch_sp);
+
+		      renderer.line_sp = cq_batch_sp;
+		      gl_setup_line(&renderer, cq_batch_sp);
+		    gl_setup_text(&renderer.ui_text);
+#endif
+		  
+		}
+
+		int brk = 1;
+#endif
+	    }
+            if (ev.key.keysym.sym == SDLK_ESCAPE)
+            {
+		// gamemode paused
+		game_play = !game_play;
+            }
             if (ev.key.keysym.sym == SDLK_w)
             {
               controller.move_up = 1;
@@ -830,28 +850,6 @@ int main(int argc, char* argv[])
 	    {
 		setup_level(&state, &renderer, &level_arena);
 	    }
-#if CAM_MANUAL_MOVE
-	    if (ev.key.keysym.sym == SDLK_LEFT)
-	    {
-		renderer.cam_pos.x -= 40.0f * state.render_scale.x;
-		renderer.cam_update = true;
-	    }
-	    if (ev.key.keysym.sym == SDLK_RIGHT)
-	    {
-		renderer.cam_pos.x += 40.0f * state.render_scale.x;
-		renderer.cam_update = true;
-	    }
-	    if (ev.key.keysym.sym == SDLK_UP)
-	    {
-		renderer.cam_pos.y += 40.0f * state.render_scale.x;
-		renderer.cam_update = true;
-	    }
-	    if (ev.key.keysym.sym == SDLK_DOWN)
-	    {
-		renderer.cam_pos.y -= 40.0f * state.render_scale.x;
-		renderer.cam_update = true;
-	    }
-#endif
           } break;
         case (SDL_KEYUP):
           {
@@ -885,510 +883,512 @@ int main(int argc, char* argv[])
       }
     }
 
-    // @section: state based loading
-    if (state.level_state == 1) {
-	state.level_index = clampi(state.level_index+1, 0, level_count-1);
-	setup_level(&state, &renderer, &level_arena);
-    }
-    
-    // @section: input processing
-    if (controller.toggle_gravity)
-    {
-      is_gravity = !is_gravity;
-      state.player_velocity = Vec2{0.0f, 0.0f};
-      p_move_dir.x = 0.0f;
-      state.effective_force = 0.0f;
-      p_motion_dir = {0};
-    }
-    if (controller.move_up)
-    {
-      p_move_dir.y = 1.0f;
-    }
-    if (controller.move_down)
-    {
-      p_move_dir.y = -1.0f;
-    }
+    if (game_play) {
+	// @section: state based loading
+	if (state.level_state == 1) {
+	    state.level_index = clampi(state.level_index+1, 0, level_count-1);
+	    setup_level(&state, &renderer, &level_arena);
+	}
+	
+	// @section: input processing
+	if (controller.toggle_gravity)
+	{
+	  is_gravity = !is_gravity;
+	  state.player_velocity = Vec2{0.0f, 0.0f};
+	  p_move_dir.x = 0.0f;
+	  state.effective_force = 0.0f;
+	  p_motion_dir = {0};
+	}
+	if (controller.move_up)
+	{
+	  p_move_dir.y = 1.0f;
+	}
+	if (controller.move_down)
+	{
+	  p_move_dir.y = -1.0f;
+	}
 
-    PlatformKey horizontal_move = PK_NIL;
-    is_key_down_x = false;
-    if (
-      key_down_time[PK_A] != 0.0f || 
-      key_down_time[PK_D] != 0.0f
-    ) {
-      horizontal_move = (
-        key_down_time[PK_A] > key_down_time[PK_D] ? PK_A : PK_D
-      );
-    }
+	PlatformKey horizontal_move = PK_NIL;
+	is_key_down_x = false;
+	if (
+	  key_down_time[PK_A] != 0.0f || 
+	  key_down_time[PK_D] != 0.0f
+	) {
+	  horizontal_move = (
+	    key_down_time[PK_A] > key_down_time[PK_D] ? PK_A : PK_D
+	  );
+	}
 
-    if (horizontal_move == PK_A && controller.move_left) 
-    {
-      p_move_dir.x = -1.0f;
-      is_key_down_x = true;
-    } 
-    if (horizontal_move == PK_D && controller.move_right) 
-    {
-      p_move_dir.x = 1.0f;
-      is_key_down_x = true;
-    }
+	if (horizontal_move == PK_A && controller.move_left) 
+	{
+	  p_move_dir.x = -1.0f;
+	  is_key_down_x = true;
+	} 
+	if (horizontal_move == PK_D && controller.move_right) 
+	{
+	  p_move_dir.x = 1.0f;
+	  is_key_down_x = true;
+	}
 
-    if (controller.jump && jump_count > 0 && jump_timer > 100.0f) {
-	controller.jump = 1;
-	jump_count--;
-	jump_timer = 0.0f;
-    } else {
-	controller.jump = 0;
-    }
+	if (controller.jump && jump_count > 0 && jump_timer > 100.0f) {
+	    controller.jump = 1;
+	    jump_count--;
+	    jump_timer = 0.0f;
+	} else {
+	    controller.jump = 0;
+	}
 
-    // jump increment
-    jump_timer += timer.tDeltaMS;
-    if (is_collide_bottom == 1 && state.gravity_diry > 0.0f) {
-	jump_count = 1;
-    }
-    if (is_collide_top == 1 && state.gravity_diry < 0.0f) {
-	jump_count = 1;
-    }
+	// jump increment
+	jump_timer += timer.tDeltaMS;
+	if (is_collide_bottom == 1 && state.gravity_diry > 0.0f) {
+	    jump_count = 1;
+	}
+	if (is_collide_top == 1 && state.gravity_diry < 0.0f) {
+	    jump_count = 1;
+	}
 
 
-    // @section: gravity
-    if (state.flip_gravity)
-    {
-	// @resume: I need to add a buffer zone, something like some iframes, so that once I touch a gravity block
-	// I don't reflip gravity if I am in contact with the block for 1-2 seconds right after first colliding
-	state.gravity_diry = state.gravity_diry > 0.0f ? -0.8f : 1.0f;
-	//gravity_diry *= -1.0f;
-	state.flip_gravity = 0;
-    }
-    Vec2 pd_1 = Vec2{0.0f, 0.0f};
-    p_motion_dir = {0};
-    if (collidey)
-    {
-      state.player_velocity.y = 0.0f;
-    }
-    if (collidex)
-    {
-      state.player_velocity.x = 0.0f;
-    }
-    if (is_gravity)
-    {
-	// @section: game_movement
+	// @section: gravity
+	if (state.flip_gravity)
+	{
+	    // @resume: I need to add a buffer zone, something like some iframes, so that once I touch a gravity block
+	    // I don't reflip gravity if I am in contact with the block for 1-2 seconds right after first colliding
+	    state.gravity_diry = state.gravity_diry > 0.0f ? -0.8f : 1.0f;
+	    //gravity_diry *= -1.0f;
+	    state.flip_gravity = 0;
+	}
+	Vec2 pd_1 = Vec2{0.0f, 0.0f};
+	p_motion_dir = {0};
+	if (collidey)
+	{
+	  state.player_velocity.y = 0.0f;
+	}
+	if (collidex)
+	{
+	  state.player_velocity.x = 0.0f;
+	}
+	if (is_gravity)
+	{
+	    // @section: game_movement
 
-      // calculate force acting on player
-      if (collidey) {
-	  // @note: can I reduce the states here like I did in the falling case
-	  // without separate checks
-	  if (collidex) {
-	      state.effective_force = 0.0f;
-	  } else if (is_key_down_x) {
-	      r32 updated_force = (
-		      state.effective_force + p_move_dir.x*move_accelx*timer.tDelta
-		      );
-	      updated_force = clampf(
-		      updated_force, -max_speedx, max_speedx
-		      );
-	      state.effective_force = updated_force;
-	  } else {
-	      r32 friction = 0.0f;
-	      if (state.effective_force > 0.0f) {
-		friction = -move_accelx*timer.tDelta;
-	      } else if (state.effective_force < 0.0f) {
-		friction = move_accelx*timer.tDelta;
-	      }
-	      r32 updated_force = state.effective_force + friction;
-	      state.effective_force = (
-		ABS(updated_force) < 0.5f ? 
-		0.0f : updated_force
-	      );
-	  }
-      } else {
-        r32 smoothing_force = state.effective_force;
-        r32 net_force = 0.0f;
-        r32 active_force = 0.0f;
-        if (!collidex) { 
-          net_force = state.effective_force;
-	  if (controller.jump) {
-	      // @step: if in the air and jumping in a different direction
-	      // allow more immediate feeling force, instead of the jump adding into net_force
-	      // which gives off, more of a floaty feeling.
-	      r32 threshed_force = roundf(net_force);
-	      b8 move_dir_different = (threshed_force >= 0 && p_move_dir.x < 0) || (threshed_force <= 0 && p_move_dir.x > 0);
-	      if (move_dir_different) {
-		  active_force = p_move_dir.x*fall_accelx/2.0f;
-		  net_force = active_force;
-	      }
-	  } else {
-	      if (is_key_down_x) {
-		  // player is slowing down, in that case, we allow this movement.
-		  b8 move_dir_opposite = (net_force > 0 && p_move_dir.x < 0) || (net_force < 0 && p_move_dir.x > 0);
-		  if (move_dir_opposite || ABS(net_force) < fall_accelx*0.15f)
-		  {
-		      active_force = p_move_dir.x*fall_accelx*timer.tDelta;
-		      net_force = clampf(net_force + active_force, -fall_accelx, fall_accelx);
-		  }
-	      } 
-	      if (ABS(net_force) >= fall_accelx) {
-		  // @note: air resistance 
-		  // (arbitrary force in opposite direction to reduce speed)
-		  // reason: seems that it would work well for the case where
-		  // player moves from platform move to free_fall
-		  // since the max speed in respective stages is different this can
-		  // function as a speed smoother, without too many checks and 
-		  // explicit checking
-		  b8 is_force_pos = state.effective_force > 0.0f;
-		  b8 is_force_neg = state.effective_force < 0.0f;
+	  // calculate force acting on player
+	  if (collidey) {
+	      // @note: can I reduce the states here like I did in the falling case
+	      // without separate checks
+	      if (collidex) {
+		  state.effective_force = 0.0f;
+	      } else if (is_key_down_x) {
+		  r32 updated_force = (
+			  state.effective_force + p_move_dir.x*move_accelx*timer.tDelta
+			  );
+		  updated_force = clampf(
+			  updated_force, -max_speedx, max_speedx
+			  );
+		  state.effective_force = updated_force;
+	      } else {
 		  r32 friction = 0.0f;
-		  if (is_force_pos) {
-		    friction = -fall_accelx*timer.tDelta;
-		  } else if (is_force_neg) {
-		    friction = fall_accelx*timer.tDelta;
+		  if (state.effective_force > 0.0f) {
+		    friction = -move_accelx*timer.tDelta;
+		  } else if (state.effective_force < 0.0f) {
+		    friction = move_accelx*timer.tDelta;
 		  }
-		  net_force += friction;
+		  r32 updated_force = state.effective_force + friction;
+		  state.effective_force = (
+		    ABS(updated_force) < 0.5f ? 
+		    0.0f : updated_force
+		  );
 	      }
+	  } else {
+	    r32 smoothing_force = state.effective_force;
+	    r32 net_force = 0.0f;
+	    r32 active_force = 0.0f;
+	    if (!collidex) { 
+	      net_force = state.effective_force;
+	      if (controller.jump) {
+		  // @step: if in the air and jumping in a different direction
+		  // allow more immediate feeling force, instead of the jump adding into net_force
+		  // which gives off, more of a floaty feeling.
+		  r32 threshed_force = roundf(net_force);
+		  b8 move_dir_different = (threshed_force >= 0 && p_move_dir.x < 0) || (threshed_force <= 0 && p_move_dir.x > 0);
+		  if (move_dir_different) {
+		      active_force = p_move_dir.x*fall_accelx/2.0f;
+		      net_force = active_force;
+		  }
+	      } else {
+		  if (is_key_down_x) {
+		      // player is slowing down, in that case, we allow this movement.
+		      b8 move_dir_opposite = (net_force > 0 && p_move_dir.x < 0) || (net_force < 0 && p_move_dir.x > 0);
+		      if (move_dir_opposite || ABS(net_force) < fall_accelx*0.15f)
+		      {
+			  active_force = p_move_dir.x*fall_accelx*timer.tDelta;
+			  net_force = clampf(net_force + active_force, -fall_accelx, fall_accelx);
+		      }
+		  } 
+		  if (ABS(net_force) >= fall_accelx) {
+		      // @note: air resistance 
+		      // (arbitrary force in opposite direction to reduce speed)
+		      // reason: seems that it would work well for the case where
+		      // player moves from platform move to free_fall
+		      // since the max speed in respective stages is different this can
+		      // function as a speed smoother, without too many checks and 
+		      // explicit checking
+		      b8 is_force_pos = state.effective_force > 0.0f;
+		      b8 is_force_neg = state.effective_force < 0.0f;
+		      r32 friction = 0.0f;
+		      if (is_force_pos) {
+			friction = -fall_accelx*timer.tDelta;
+		      } else if (is_force_neg) {
+			friction = fall_accelx*timer.tDelta;
+		      }
+		      net_force += friction;
+		  }
+	      }
+	    }
+	    state.effective_force = net_force;
 	  }
-        }
-        state.effective_force = net_force;
-      }
-      
-      {
-        // horizontal motion setting
-        r32 dx1 = state.effective_force;
-        if ( dx1 == 0.0f ) {
-          p_move_dir.x = 0.0f;
-        }
+	  
+	  {
+	    // horizontal motion setting
+	    r32 dx1 = state.effective_force;
+	    if ( dx1 == 0.0f ) {
+	      p_move_dir.x = 0.0f;
+	    }
 
-        if (dx1 < 0.0f) {
-          p_motion_dir.x = -1.0f;
-        } else if (dx1 > 0.0f) {
-          p_motion_dir.x = 1.0f;
-        }
-        state.player_velocity.x = dx1;
-        pd_1.x = dx1;
-      }
-
-      {
-        // vertical motion when falling
-        r32 dy1 = state.player_velocity.y; 
-        dy1 = dy1 + state.gravity_diry * freefall_accel * timer.tDelta;
-        if (controller.jump) {
-          dy1 = state.gravity_diry*jump_force;
-	  if (!collidey) {
-	      // if we are in the air, the jump force is 75% of normal
-	      dy1 = state.gravity_diry * jump_force * 0.75f;
+	    if (dx1 < 0.0f) {
+	      p_motion_dir.x = -1.0f;
+	    } else if (dx1 > 0.0f) {
+	      p_motion_dir.x = 1.0f;
+	    }
+	    state.player_velocity.x = dx1;
+	    pd_1.x = dx1;
 	  }
-        }
-        if (dy1 < state.gravity_diry * -0.01f) {
-          p_motion_dir.y = -state.gravity_diry;
-        } else if (dy1 > state.gravity_diry * 0.01f) {
-          p_motion_dir.y = state.gravity_diry;
-        }
-        state.player_velocity.y = dy1;
-        pd_1.y = dy1;
-      }
-    }
-    else 
-    {
-	// @no_clip_movement
-        Vec2 dir = get_move_dir(controller);
-        pd_1 = dir * 8.0f * render_scale.x;
-        if (pd_1.x < 0.0f) {
-          p_motion_dir.x = -1.0f;
-        } else if (pd_1.x > 0.0f) {
-          p_motion_dir.x = 1.0f;
-        }
-        if (pd_1.y < 0.0f) {
-          p_motion_dir.y = -1.0f;
-        } else if (pd_1.y > 0.0f) {
-          p_motion_dir.y = 1.0f;
-        }
-    }
 
- 
-    // @section: collision
-    Entity player = state.game_level.entities[state.player.index];
-    Vec3 next_player_position;
-    next_player_position.x = player.position.x + pd_1.x;
-    next_player_position.y = player.position.y + pd_1.y;
+	  {
+	    // vertical motion when falling
+	    r32 dy1 = state.player_velocity.y; 
+	    dy1 = dy1 + state.gravity_diry * freefall_accel * timer.tDelta;
+	    if (controller.jump) {
+	      dy1 = state.gravity_diry*jump_force;
+	      if (!collidey) {
+		  // if we are in the air, the jump force is 75% of normal
+		  dy1 = state.gravity_diry * jump_force * 0.75f;
+	      }
+	    }
+	    if (dy1 < state.gravity_diry * -0.01f) {
+	      p_motion_dir.y = -state.gravity_diry;
+	    } else if (dy1 > state.gravity_diry * 0.01f) {
+	      p_motion_dir.y = state.gravity_diry;
+	    }
+	    state.player_velocity.y = dy1;
+	    pd_1.y = dy1;
+	  }
+	}
+	else 
+	{
+	    // @no_clip_movement
+	    Vec2 dir = get_move_dir(controller);
+	    pd_1 = dir * 8.0f * render_scale.x;
+	    if (pd_1.x < 0.0f) {
+	      p_motion_dir.x = -1.0f;
+	    } else if (pd_1.x > 0.0f) {
+	      p_motion_dir.x = 1.0f;
+	    }
+	    if (pd_1.y < 0.0f) {
+	      p_motion_dir.y = -1.0f;
+	    } else if (pd_1.y > 0.0f) {
+	      p_motion_dir.y = 1.0f;
+	    }
+	}
 
-    Rect player_next = rect(next_player_position, player.size);
-    
-    b8 is_collide_x = 0;
-    b8 is_collide_y = 0;
-    is_collide_bottom = 0;
-    is_collide_top = 0;
+     
+	// @section: collision
+	Entity player = state.game_level.entities[state.player.index];
+	Vec3 next_player_position;
+	next_player_position.x = player.position.x + pd_1.x;
+	next_player_position.y = player.position.y + pd_1.y;
 
-    for (u32 i = 0; i < state.obstacles.size; i++) {
-	// @step: check_obstacle_collisions
+	Rect player_next = rect(next_player_position, player.size);
+	
+	b8 is_collide_x = 0;
+	b8 is_collide_y = 0;
+	is_collide_bottom = 0;
+	is_collide_top = 0;
 
-	// @func: check_if_player_colliding_with_target
-	u32 index = state.obstacles.buffer[i].index;
-	Entity e = state.game_level.entities[index];
-      	Rect target = e.bounds;
+	for (u32 i = 0; i < state.obstacles.size; i++) {
+	    // @step: check_obstacle_collisions
 
-	b8 t_collide_x = 0;
-	// need to adjust player position in case of vertical collisions
-	// so need to check which player side collides
-	b8 t_collide_bottom = 0;
-	b8 t_collide_top = 0;
+	    // @func: check_if_player_colliding_with_target
+	    u32 index = state.obstacles.buffer[i].index;
+	    Entity e = state.game_level.entities[index];
+	    Rect target = e.bounds;
 
-	r32 prev_left   = player.bounds.lb.x;
-	r32 prev_bottom = player.bounds.lb.y;
-	r32 prev_right  = player.bounds.rt.x;
-	r32 prev_top    = player.bounds.rt.y;
+	    b8 t_collide_x = 0;
+	    // need to adjust player position in case of vertical collisions
+	    // so need to check which player side collides
+	    b8 t_collide_bottom = 0;
+	    b8 t_collide_top = 0;
 
-	r32 p_left    = player_next.lb.x;
-	r32 p_bottom  = player_next.lb.y;
-	r32 p_right   = player_next.rt.x;
-	r32 p_top     = player_next.rt.y;
+	    r32 prev_left   = player.bounds.lb.x;
+	    r32 prev_bottom = player.bounds.lb.y;
+	    r32 prev_right  = player.bounds.rt.x;
+	    r32 prev_top    = player.bounds.rt.y;
 
-	r32 t_left    = target.lb.x;
-	r32 t_bottom  = target.lb.y;
-	r32 t_right   = target.rt.x;
-	r32 t_top     = target.rt.y;
+	    r32 p_left    = player_next.lb.x;
+	    r32 p_bottom  = player_next.lb.y;
+	    r32 p_right   = player_next.rt.x;
+	    r32 p_top     = player_next.rt.y;
 
+	    r32 t_left    = target.lb.x;
+	    r32 t_bottom  = target.lb.y;
+	    r32 t_right   = target.rt.x;
+	    r32 t_top     = target.rt.y;
+
+	    if (!is_collide_y) {
+		b8 prev_collide_x = !(prev_left > t_right || prev_right < t_left);
+		b8 new_collide_target_top = (p_bottom < t_top && p_top > t_top);
+		b8 new_collide_target_bottom = (p_top > t_bottom && p_bottom < t_bottom);
+		if (prev_collide_x && new_collide_target_top) {
+		  t_collide_top = 1;
+		}
+		if (prev_collide_x && new_collide_target_bottom) {
+		  t_collide_bottom = 1;
+		}
+	    }
+
+	    {
+		b8 prev_collide_y = !(prev_top < t_bottom + 0.2f || prev_bottom > t_top);
+		b8 new_collide_x = !(p_right < t_left || p_left > t_right);
+		if (prev_collide_y && new_collide_x) {
+		  t_collide_x = 1;
+		}
+	    }
+
+	    // @func: update_player_positions_if_sides_colliding
+	    if (t_collide_top) {
+	      player.position.y -= (prev_bottom - t_top - 0.1f);
+	    } else if (t_collide_bottom) {
+	      player.position.y += (t_bottom - prev_top - 0.1f);
+	    }
+
+	    if (e.type == INVERT_GRAVITY && (t_collide_x || t_collide_top || t_collide_bottom)) {
+		// @note: gravity inverter mechanic
+		// 1. touch block, gravity flips
+		// 2. for 2 second, after gravity is flipped, gravity will not be flipped 
+		// (this will collapse various cases where the player is trying to reflip gravity, 
+		// but immediate contact after flipping makes this awkward and infeasible)
+		if (state.gravity_flip_timer <= 0) {
+		    state.gravity_flip_timer = 500.0f;
+		    state.flip_gravity = 1;
+		}
+	    }
+
+	    is_collide_x = is_collide_x || t_collide_x;
+	    is_collide_y = is_collide_y || t_collide_top || t_collide_bottom;
+	    is_collide_bottom = is_collide_bottom || t_collide_top;
+	    is_collide_top = is_collide_top || t_collide_bottom;
+	}
+
+	if (!is_collide_x) {
+	  player.position.x = next_player_position.x;
+	}
 	if (!is_collide_y) {
-	    b8 prev_collide_x = !(prev_left > t_right || prev_right < t_left);
-	    b8 new_collide_target_top = (p_bottom < t_top && p_top > t_top);
-	    b8 new_collide_target_bottom = (p_top > t_bottom && p_bottom < t_bottom);
-	    if (prev_collide_x && new_collide_target_top) {
-	      t_collide_top = 1;
+	  player.position.y = next_player_position.y;
+	}
+
+	// check collision with goal
+	{
+	    Entity goal = state.game_level.entities[state.goal.index];
+	    Rect target = goal.bounds;
+
+	    state.level_state = aabb_collision_rect(player_next, target);
+	}
+
+	// @section: teleport
+	b8 inside_teleporter_now = 0;
+	b8 teleporting_now = state.teleporting;
+	Vec2 teleported_position = Vec2{player.position.x, player.position.y};
+	for (u32 i = 0; i < state.game_level.entity_count; i++) {
+	    /*
+	     * @note;
+	     * TELEPORT START ...
+	     * 1. go inside a teleport block, player marked as in block
+	     * 2. hit teleport block center, player marked as teleporting
+	     * 3. player teleported to new block
+	     * 4. once player exits the new block, player marked as in block false
+	     * 5. then player marked as teleporting false
+	     * ... TELEPORT COMPLETE
+	     */
+	    Entity e = state.game_level.entities[i];
+	    if (e.type != TELEPORT) {
+		continue;
 	    }
-	    if (prev_collide_x && new_collide_target_bottom) {
-	      t_collide_bottom = 1;
+
+	    Rect target = e.bounds;
+
+	    if (teleporting_now) {
+		// check if player is outside of this teleport block or not
+		b8 t_collide = aabb_collision_rect(player.bounds, target);
+		inside_teleporter_now |= t_collide;
+
+		continue;
 	    }
+	    // check if player is completely inside teleport block
+	    b8 t_collide = aabb_collision_rect(player.bounds, target);
+	    if (!t_collide) {
+		continue;
+	    }
+
+	    inside_teleporter_now |= t_collide;
+	    
+	    // check if player x-axis is within teleport x-axis
+	    Vec2 player_center = player.position.v2() + player.size/2.0f;
+	    Vec2 entity_center = e.position.v2() + e.size/2.0f;
+	    Vec2 displacement = player_center - entity_center;
+
+	    if (ABS(displacement.x) <= 5.0f*render_scale.x || ABS(displacement.y) <= 5.0f*render_scale.x) {
+		teleporting_now = 1;
+		{
+		    // @step: teleport_player
+		    Entity teleport_to = get_entity_by_id(state, e.link_id);
+		    Vec2 teleport_to_center = teleport_to.position.v2() + teleport_to.size/2.0f;
+		    // set next position
+		    Vec2 teleported_position_center = teleport_to_center + displacement;
+		    teleported_position = teleported_position_center - player.size/2.0f;
+		}
+	    }
+	}
+	{
+	    // update teleport variable
+	    state.inside_teleporter = inside_teleporter_now;
+	    state.teleporting = teleporting_now && state.inside_teleporter;
+	    if (state.teleporting) {
+		player.position.x = teleported_position.x;
+		player.position.y = teleported_position.y;
+	    }
+	}
+	{
+	    state.gravity_flip_timer = MAX(state.gravity_flip_timer - timer.tDeltaMS, 0.0f);
 	}
 
 	{
-	    b8 prev_collide_y = !(prev_top < t_bottom + 0.2f || prev_bottom > t_top);
-	    b8 new_collide_x = !(p_right < t_left || p_left > t_right);
-	    if (prev_collide_y && new_collide_x) {
-	      t_collide_x = 1;
-	    }
+	    // @step: update player variables
+	    player.bounds = rect(player.position, player.size);
+	    was_colliding = collidex || collidey;
+	    collidex = is_collide_x;
+	    collidey = is_collide_y;
+
+	    state.game_level.entities[state.player.index] = player;
 	}
 
-	// @func: update_player_positions_if_sides_colliding
-	if (t_collide_top) {
-	  player.position.y -= (prev_bottom - t_top - 0.1f);
-	} else if (t_collide_bottom) {
-	  player.position.y += (t_bottom - prev_top - 0.1f);
-	}
+	// @section: camera_update
+	{
+	    // camera movement and handling
+	    // Cases:
+	    // - A new level loads, the camera position needs to be on the player 
+	    // (part of level loading) [Focus on Player]
+	    // - Player is moving and camera needs to follow
+	    // - Player has stopped moving and camera needs to slowly adjust (linearly)
+	    // - Player teleports, camera needs to move to the player:
+	    //  - if player is within view camera needs to slowly adjust the player, 
+	    //  and pan linearly until player is in level focus
+	    //  - if player is out of camera view, jump 
+	    //  (linearly but slightly faster) to the player
+	    // - If player is outside, pan quickly (linearly) to player
+	    // - If player is at the boundary of a level, 
+	    // respect the level boundary and do not center the player. 
+	    //  Pan camera, up until the edge of the level boundary. 
+	    //  Do no move the camera beyond the level boundary.
+	    //
+	    //  Based off of these cases, this is the behavior I can see:
+	    //  1. Player is moving at the edges of the screen, follow.
+	    //  2. Player is stopped, pan slowly until player is in the focus region 
+	    //  (need to define focus region)
+	    //  3. Player is outside the screen, pan to player 
+	    //  (go from current camera position to player position linearly)
 
-	if (e.type == INVERT_GRAVITY && (t_collide_x || t_collide_top || t_collide_bottom)) {
-	    // @note: gravity inverter mechanic
-	    // 1. touch block, gravity flips
-	    // 2. for 2 second, after gravity is flipped, gravity will not be flipped 
-	    // (this will collapse various cases where the player is trying to reflip gravity, 
-	    // but immediate contact after flipping makes this awkward and infeasible)
-	    if (state.gravity_flip_timer <= 0) {
-		state.gravity_flip_timer = 500.0f;
-		state.flip_gravity = 1;
-	    }
-	}
+	    // @step: player is at the edge of the screen
+	    // get players visible bounds (padding around the player to consider it be visible for the camera)
+	    Vec2 vis_lb = player.bounds.lb - (Vec2{120.0f, 60.0f} * state.render_scale.x);
+	    Vec2 vis_rt = player.bounds.rt + (Vec2{120.0f, 60.0f} * state.render_scale.y);
+	    Rect vis_bounds;
+	    vis_bounds.lb = vis_lb;
+	    vis_bounds.rt = vis_rt;
+	    Rect cam_bounds = state.camera_bounds;
 
-	is_collide_x = is_collide_x || t_collide_x;
-	is_collide_y = is_collide_y || t_collide_top || t_collide_bottom;
-	is_collide_bottom = is_collide_bottom || t_collide_top;
-	is_collide_top = is_collide_top || t_collide_bottom;
-    }
+	    Vec2 camera_center = Vec2{state.camera_bounds.rt.x/2.0f, state.camera_bounds.rt.y/2.0f};
+	    Vec2 player_camera_offset = player.position.v2() - camera_center;
+	    // check if vis_bounds inside camera_bounds
+	    b8 is_player_in_camera = (
+		    vis_bounds.lb.x >= cam_bounds.lb.x && vis_bounds.lb.y >= cam_bounds.lb.y &&
+		    vis_bounds.rt.x <= cam_bounds.rt.x && vis_bounds.rt.y <= cam_bounds.rt.y
+	    );
 
-    if (!is_collide_x) {
-      player.position.x = next_player_position.x;
-    }
-    if (!is_collide_y) {
-      player.position.y = next_player_position.y;
-    }
+	    if (!is_player_in_camera) {
+		r32 stepx_multiplier = player_camera_offset.x < 0 ? -1.0f : 1.0f;
+		r32 stepy_multiplier = player_camera_offset.y < 0 ? -1.0f : 1.0f;
 
-    // check collision with goal
-    {
-	Entity goal = state.game_level.entities[state.goal.index];
-	Rect target = goal.bounds;
+		r32 camera_stepx = stepx_multiplier * MIN(ABS(player_camera_offset.x), camera_pan_slow.x);
+		r32 camera_stepy = stepy_multiplier * MIN(ABS(player_camera_offset.y), camera_pan_slow.y);
 
-	state.level_state = aabb_collision_rect(player_next, target);
-    }
+		Vec2 distance_scaler;	    
+		{
+		    // @step: calculate distance scaler
+		    // @note: this is to help scale how quickly the camera needs to pan
+		    // this is based off of how far the player is from the camera position.
+		    // The reason this is discrete instead of continuous is to give better predictability
+		    // (at this stage)
+		    // @note: make this continuous, so it pans smoothly. Movement is jerky at step boundaries
+		    u32 dist_stepx = (u32)SDL_floorf(ABS(player_camera_offset.x) / 100);
+		    u32 dist_stepy = (u32)SDL_floorf(ABS(player_camera_offset.y) / 100);
 
-    // @section: teleport
-    b8 inside_teleporter_now = 0;
-    b8 teleporting_now = state.teleporting;
-    Vec2 teleported_position = Vec2{player.position.x, player.position.y};
-    for (u32 i = 0; i < state.game_level.entity_count; i++) {
-	/*
-	 * @note;
-	 * TELEPORT START ...
-	 * 1. go inside a teleport block, player marked as in block
-	 * 2. hit teleport block center, player marked as teleporting
-	 * 3. player teleported to new block
-	 * 4. once player exits the new block, player marked as in block false
-	 * 5. then player marked as teleporting false
-	 * ... TELEPORT COMPLETE
-	 */
-	Entity e = state.game_level.entities[i];
-	if (e.type != TELEPORT) {
-	    continue;
-	}
+		    if (dist_stepx >= 0 && dist_stepx < 4) {
+			distance_scaler.x = 8.0f;
+		    } else if (dist_stepx >= 4 && dist_stepx < 8) {
+			distance_scaler.x = 6.0f;
+		    } else {
+			distance_scaler.x = 4.0f;
+		    }
 
-	Rect target = e.bounds;
-
-	if (teleporting_now) {
-	    // check if player is outside of this teleport block or not
-	    b8 t_collide = aabb_collision_rect(player.bounds, target);
-	    inside_teleporter_now |= t_collide;
-
-	    continue;
-	}
-	// check if player is completely inside teleport block
-	b8 t_collide = aabb_collision_rect(player.bounds, target);
-	if (!t_collide) {
-	    continue;
-	}
-
-	inside_teleporter_now |= t_collide;
-	
-	// check if player x-axis is within teleport x-axis
-	Vec2 player_center = player.position.v2() + player.size/2.0f;
-	Vec2 entity_center = e.position.v2() + e.size/2.0f;
-	Vec2 displacement = player_center - entity_center;
-
-	if (ABS(displacement.x) <= 5.0f*render_scale.x || ABS(displacement.y) <= 5.0f*render_scale.x) {
-	    teleporting_now = 1;
-	    {
-		// @step: teleport_player
-		Entity teleport_to = get_entity_by_id(state, e.link_id);
-		Vec2 teleport_to_center = teleport_to.position.v2() + teleport_to.size/2.0f;
-		// set next position
-		Vec2 teleported_position_center = teleport_to_center + displacement;
-		teleported_position = teleported_position_center - player.size/2.0f;
-	    }
-	}
-    }
-    {
-	// update teleport variable
-	state.inside_teleporter = inside_teleporter_now;
-	state.teleporting = teleporting_now && state.inside_teleporter;
-	if (state.teleporting) {
-	    player.position.x = teleported_position.x;
-	    player.position.y = teleported_position.y;
-	}
-    }
-    {
-	state.gravity_flip_timer = MAX(state.gravity_flip_timer - timer.tDeltaMS, 0.0f);
-    }
-
-    {
-	// @step: update player variables
-	player.bounds = rect(player.position, player.size);
-	was_colliding = collidex || collidey;
-	collidex = is_collide_x;
-	collidey = is_collide_y;
-
-	state.game_level.entities[state.player.index] = player;
-    }
-
-    // @section: camera_update
-    {
-	// camera movement and handling
-	// Cases:
-	// - A new level loads, the camera position needs to be on the player 
-	// (part of level loading) [Focus on Player]
-	// - Player is moving and camera needs to follow
-	// - Player has stopped moving and camera needs to slowly adjust (linearly)
-	// - Player teleports, camera needs to move to the player:
-	//  - if player is within view camera needs to slowly adjust the player, 
-	//  and pan linearly until player is in level focus
-	//  - if player is out of camera view, jump 
-	//  (linearly but slightly faster) to the player
-	// - If player is outside, pan quickly (linearly) to player
-	// - If player is at the boundary of a level, 
-	// respect the level boundary and do not center the player. 
-	//  Pan camera, up until the edge of the level boundary. 
-	//  Do no move the camera beyond the level boundary.
-	//
-	//  Based off of these cases, this is the behavior I can see:
-	//  1. Player is moving at the edges of the screen, follow.
-	//  2. Player is stopped, pan slowly until player is in the focus region 
-	//  (need to define focus region)
-	//  3. Player is outside the screen, pan to player 
-	//  (go from current camera position to player position linearly)
-
-	// @step: player is at the edge of the screen
-	// get players visible bounds (padding around the player to consider it be visible for the camera)
-	Vec2 vis_lb = player.bounds.lb - (Vec2{120.0f, 60.0f} * state.render_scale.x);
-	Vec2 vis_rt = player.bounds.rt + (Vec2{120.0f, 60.0f} * state.render_scale.y);
-	Rect vis_bounds;
-	vis_bounds.lb = vis_lb;
-	vis_bounds.rt = vis_rt;
-	Rect cam_bounds = state.camera_bounds;
-
-	Vec2 camera_center = Vec2{state.camera_bounds.rt.x/2.0f, state.camera_bounds.rt.y/2.0f};
-	Vec2 player_camera_offset = player.position.v2() - camera_center;
-	// check if vis_bounds inside camera_bounds
-	b8 is_player_in_camera = (
-		vis_bounds.lb.x >= cam_bounds.lb.x && vis_bounds.lb.y >= cam_bounds.lb.y &&
-		vis_bounds.rt.x <= cam_bounds.rt.x && vis_bounds.rt.y <= cam_bounds.rt.y
-	);
-
-	if (!is_player_in_camera) {
-	    r32 stepx_multiplier = player_camera_offset.x < 0 ? -1.0f : 1.0f;
-	    r32 stepy_multiplier = player_camera_offset.y < 0 ? -1.0f : 1.0f;
-
-	    r32 camera_stepx = stepx_multiplier * MIN(ABS(player_camera_offset.x), camera_pan_slow.x);
-	    r32 camera_stepy = stepy_multiplier * MIN(ABS(player_camera_offset.y), camera_pan_slow.y);
-
-	    Vec2 distance_scaler;	    
-	    {
-		// @step: calculate distance scaler
-		// @note: this is to help scale how quickly the camera needs to pan
-		// this is based off of how far the player is from the camera position.
-		// The reason this is discrete instead of continuous is to give better predictability
-		// (at this stage)
-		// @note: make this continuous, so it pans smoothly. Movement is jerky at step boundaries
-		u32 dist_stepx = (u32)SDL_floorf(ABS(player_camera_offset.x) / 100);
-		u32 dist_stepy = (u32)SDL_floorf(ABS(player_camera_offset.y) / 100);
-
-		if (dist_stepx >= 0 && dist_stepx < 4) {
-		    distance_scaler.x = 8.0f;
-		} else if (dist_stepx >= 4 && dist_stepx < 8) {
-		    distance_scaler.x = 6.0f;
-		} else {
-		    distance_scaler.x = 4.0f;
+		    if (dist_stepy >= 0 && dist_stepy < 4) {
+			distance_scaler.y = 8.0f;
+		    } else if (dist_stepy >= 4 && dist_stepy < 8) {
+			distance_scaler.y = 6.0f;
+		    } else {
+			distance_scaler.y = 4.0f;
+		    }
 		}
+		renderer.cam_pos.x += camera_stepx*timer.tDeltaMS/distance_scaler.x;
+		renderer.cam_pos.y += camera_stepy*timer.tDeltaMS/distance_scaler.y;
 
-		if (dist_stepy >= 0 && dist_stepy < 4) {
-		    distance_scaler.y = 8.0f;
-		} else if (dist_stepy >= 4 && dist_stepy < 8) {
-		    distance_scaler.y = 6.0f;
-		} else {
-		    distance_scaler.y = 4.0f;
-		}
+		renderer.cam_update = 1;
 	    }
-	    renderer.cam_pos.x += camera_stepx*timer.tDeltaMS/distance_scaler.x;
-	    renderer.cam_pos.y += camera_stepy*timer.tDeltaMS/distance_scaler.y;
-
-	    renderer.cam_update = 1;
-	}
 
 
-	b8 player_moving_up = p_motion_dir.y == state.gravity_diry*1 && !is_collide_y;
-	b8 player_moving_down = p_motion_dir.y == state.gravity_diry*-1 && !is_collide_y;
+	    b8 player_moving_up = p_motion_dir.y == state.gravity_diry*1 && !is_collide_y;
+	    b8 player_moving_down = p_motion_dir.y == state.gravity_diry*-1 && !is_collide_y;
 
-	player_camera_offset = player.position.v2() - renderer.cam_pos.v2();
-	// @step: player moving at edges of the screen
-	if (player_camera_offset.x <= cam_lt_limit.x && p_motion_dir.x == -1) {
-	    renderer.cam_pos.x += pd_1.x;
-	    renderer.cam_update = 1;
-	}
-	if (player_camera_offset.y >= cam_lt_limit.y && 
-		player_moving_up) {
-	    renderer.cam_pos.y += pd_1.y;
-	    renderer.cam_update = 1;
-	}
-	if (player_camera_offset.x >= cam_rb_limit.x && p_motion_dir.x == 1) {
-	    renderer.cam_pos.x += pd_1.x;
-	    renderer.cam_update = 1;
-	}
-	if (player_camera_offset.y <= cam_rb_limit.y && 
-		player_moving_down) {
-	    renderer.cam_pos.y += pd_1.y;
-	    renderer.cam_update = 1;
-	}
+	    player_camera_offset = player.position.v2() - renderer.cam_pos.v2();
+	    // @step: player moving at edges of the screen
+	    if (player_camera_offset.x <= cam_lt_limit.x && p_motion_dir.x == -1) {
+		renderer.cam_pos.x += pd_1.x;
+		renderer.cam_update = 1;
+	    }
+	    if (player_camera_offset.y >= cam_lt_limit.y && 
+		    player_moving_up) {
+		renderer.cam_pos.y += pd_1.y;
+		renderer.cam_update = 1;
+	    }
+	    if (player_camera_offset.x >= cam_rb_limit.x && p_motion_dir.x == 1) {
+		renderer.cam_pos.x += pd_1.x;
+		renderer.cam_update = 1;
+	    }
+	    if (player_camera_offset.y <= cam_rb_limit.y && 
+		    player_moving_down) {
+		renderer.cam_pos.y += pd_1.y;
+		renderer.cam_update = 1;
+	    }
 
+	}
     }
 
     {
@@ -1405,146 +1405,113 @@ int main(int argc, char* argv[])
     }
     
     // output
-
-#if AUDIO
-    // @section: audio 
-    if (controller.jump) {
-	ma_sound_start(&jump_sound);
-    }
-    if ((collidex || collidey) && !was_colliding) {
-	//ma_sound_set_pitch(&landing_sound, 0.5f);
-	//ma_sound_set_volume(&landing_sound, 0.2);
-	ma_sound_start(&landing_sound);
-    }
-    if (state.level_state == 1) {
-	ma_sound_start(&level_complete_sound);
-    }
-#endif
-
     glClearColor(0.8f, 0.5f, 0.7f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     
     // @section: rendering
     // @step: render draw lines
-    {
-	// @step: draw vertical lines
-	s32 line_index = (s32)state.camera_bounds.lb.x/atom_size.x;
-	for (s32 x = state.camera_bounds.lb.x; x <= state.camera_bounds.rt.x; x += atom_size.x) {
-	    s32 offset = line_index*atom_size.x - x;
-	    Vec3 start = Vec3{ 
-		(r32)(x + offset), 
-		state.camera_bounds.lb.y, 
-		entity_z[DEBUG_LINE]
-	    };
-	    Vec3 end = Vec3{
-		(r32)(x + offset),
-		state.camera_bounds.rt.y, 
-		entity_z[DEBUG_LINE]
-	    };
-
-	    gl_draw_line(
-		    &renderer,
-		    start,
-		    end,
-		    Vec3{0.1, 0.1, 0.1}
-		    );
-
-	    line_index++;
-	}
-
-	line_index = (s32)state.camera_bounds.lb.y/atom_size.y;
-	// @step: draw horizontal lines
-	for (s32 y = state.camera_bounds.lb.y; y <= state.camera_bounds.rt.y; y += atom_size.x) {
-	    s32 offset = line_index * atom_size.y - y;
-	    Vec3 start = Vec3{
-		state.camera_bounds.lb.x, 
-		    (r32)(y + offset), 
+    if (game_play) {
+	{
+	    // @step: draw vertical lines
+	    s32 line_index = (s32)state.camera_bounds.lb.x/atom_size.x;
+	    for (s32 x = state.camera_bounds.lb.x; x <= state.camera_bounds.rt.x; x += atom_size.x) {
+		s32 offset = line_index*atom_size.x - x;
+		Vec3 start = Vec3{ 
+		    (r32)(x + offset), 
+		    state.camera_bounds.lb.y, 
 		    entity_z[DEBUG_LINE]
-	    };
-	    Vec3 end = Vec3{
-		state.camera_bounds.rt.x, 
-		    (r32)(y + offset), 
+		};
+		Vec3 end = Vec3{
+		    (r32)(x + offset),
+		    state.camera_bounds.rt.y, 
 		    entity_z[DEBUG_LINE]
-	    };
+		};
 
-	    gl_draw_line(
-		    &renderer,
-		    start,
-		    end,
-		    Vec3{0.1, 0.1, 0.1}
-		    );
-	
-	    line_index++;
-	}
-	gl_line_flush(&renderer);
-    }
+		gl_draw_line(
+			&renderer,
+			start,
+			end,
+			Vec3{0.1, 0.1, 0.1}
+			);
 
-    // render_entities
-    for (int i = 0; i < state.game_level.entity_count; i++) {
-	Entity entity = state.game_level.entities[i];
-	Vec3 entity_center = Vec3{
-	    entity.position.x + entity.size.x/2.0f,
-	    entity.position.y + entity.size.y/2.0f, 
-	    entity.position.z
-	};
-	Vec3 color = entity_colors[entity.type];
-	gl_draw_colored_quad_optimized(
-		&renderer,
-		entity_center,
-		entity.size,
-		color
-	);
-    }
+		line_index++;
+	    }
 
-    gl_cq_flush(&renderer);
+	    line_index = (s32)state.camera_bounds.lb.y/atom_size.y;
+	    // @step: draw horizontal lines
+	    for (s32 y = state.camera_bounds.lb.y; y <= state.camera_bounds.rt.y; y += atom_size.x) {
+		s32 offset = line_index * atom_size.y - y;
+		Vec3 start = Vec3{
+		    state.camera_bounds.lb.x, 
+			(r32)(y + offset), 
+			entity_z[DEBUG_LINE]
+		};
+		Vec3 end = Vec3{
+		    state.camera_bounds.rt.x, 
+			(r32)(y + offset), 
+			entity_z[DEBUG_LINE]
+		};
 
-    array_clear(&renderer.cq_pos_batch);
-    array_clear(&renderer.cq_color_batch);
-    renderer.cq_batch_count = 0;
-    
-    char level_state_output[50];
-    sprintf(level_state_output, "is level clear = %d", state.level_state);
-    gl_render_text(
-	    &renderer,
-	    level_state_output,
-	    Vec2{600.0f, 900.0f},
-	    Vec3{0.0f, 0.0f, 0.0f},
-	    32.0f);
-
-
-    if (is_collide_x || is_collide_y)
-    {
-      gl_render_text(&renderer,
-                     "is colliding",
-                     Vec2{500.0f, 700.0f},      // position
-                     Vec3{0.0f, 0.0f, 0.0f},   // color
-                     28.0f);                    // size
-    }
-    
-    char fmt_buffer[50];
-    sprintf(fmt_buffer, "frametime: %f", timer.tDelta);
-    gl_render_text(&renderer,
-                   fmt_buffer,
-                   Vec2{900.0f, 90.0f},      // position
-                   Vec3{0.0f, 0.0f, 0.0f},
-		   28.0f*render_scale.x);   // color
-    
-    sprintf(fmt_buffer, "GridX: %d, GridY: %d", mouse_position_clamped.x, mouse_position_clamped.y);
-    gl_render_text(
-	    &renderer,
-	    fmt_buffer,
-	    Vec2{0.0f, 0.0f},
-	    Vec3{0.0f, 0.0f, 0.0f}, 
-	    28.0f*render_scale.x);
-
-    sprintf(fmt_buffer, "WorldMouseX: %d, WorldMouseY: %d", mouse_position_world.x, mouse_position_world.y);
-    gl_render_text(
-	    &renderer,
-	    fmt_buffer,
-	    Vec2{0.0f, 40.0f},
-	    Vec3{0.0f, 0.0f, 0.0f}, 
-	    28.0f*render_scale.x);
+		gl_draw_line(
+			&renderer,
+			start,
+			end,
+			Vec3{0.1, 0.1, 0.1}
+			);
 	    
+		line_index++;
+	    }
+	    gl_line_flush(&renderer);
+	}
+
+	// render_entities
+	for (int i = 0; i < state.game_level.entity_count; i++) {
+	    Entity entity = state.game_level.entities[i];
+	    Vec3 entity_center = Vec3{
+		entity.position.x + entity.size.x/2.0f,
+		entity.position.y + entity.size.y/2.0f, 
+		entity.position.z
+	    };
+	    Vec3 color = entity_colors[entity.type];
+	    gl_draw_colored_quad_optimized(
+		    &renderer,
+		    entity_center,
+		    entity.size,
+		    color
+	    );
+	}
+
+	gl_cq_flush(&renderer);
+
+	array_clear(&renderer.cq_pos_batch);
+	array_clear(&renderer.cq_color_batch);
+	renderer.cq_batch_count = 0;
+	
+	char fmt_buffer[50];
+	sprintf(fmt_buffer, "frametime: %f", timer.tDelta);
+	gl_render_text(&renderer,
+		       fmt_buffer,
+		       Vec2{900.0f, 90.0f},      // position
+		       Vec3{0.0f, 0.0f, 0.0f},
+		       28.0f*render_scale.x);   // color
+	
+	sprintf(fmt_buffer, "GridX: %d, GridY: %d", mouse_position_clamped.x, mouse_position_clamped.y);
+	gl_render_text(
+		&renderer,
+		fmt_buffer,
+		Vec2{0.0f, 0.0f},
+		Vec3{0.0f, 0.0f, 0.0f}, 
+		28.0f*render_scale.x);
+
+	sprintf(fmt_buffer, "WorldMouseX: %d, WorldMouseY: %d", mouse_position_world.x, mouse_position_world.y);
+	gl_render_text(
+		&renderer,
+		fmt_buffer,
+		Vec2{0.0f, 40.0f},
+		Vec3{0.0f, 0.0f, 0.0f}, 
+		28.0f*render_scale.x);
+	    
+    }     
 
     SDL_GL_SwapWindow(window);
 
