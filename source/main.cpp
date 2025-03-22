@@ -9,6 +9,7 @@
 //-----------------------------
 
 //-----------------------------
+#include "SDL2/SDL_events.h"
 #include "SDL2/SDL_keycode.h"
 #include "SDL2/SDL_video.h"
 #include "core.h"
@@ -61,6 +62,13 @@ void str_clear(Str256 *str) {
     str->size = 0;
 }
 
+enum ButtonState {
+    NONE	= 0,
+    HOVER	= 1,
+    PRESSED	= 2,
+    CLICK	= 3
+};
+
 enum PMoveState {
   NO_MOVE       = 0,
   MOVE          = 1,
@@ -91,6 +99,7 @@ enum ENTITY_TYPE {
     INVERT_GRAVITY = 3,
     TELEPORT = 4,
     DEBUG_LINE = 5,
+    TEXT = 6,
 };
 
 static r32 entity_z[10];
@@ -202,35 +211,41 @@ void enforce_frame_rate(FrameTimer *ft, u32 target) {
 }
 
 struct GameState {
-  // the default size the game is designed around
-  Vec2 screen_size;
-  // the scaling factor to increase/decrease size of game assets
-  Vec2 render_scale;
-  // the smallest size a unit can be. This scales with render_scale
-  Vec2 atom_size;
-  Rect camera_bounds;
-
-  // level
-  // 0: in progress, 1: complete
-  b8 level_state;
-  s32 level_index;
-  Str256 level_path_base;
-  Str256 level_name;
-  Level game_level;
-  EntityInfo player;
-  EntityInfo goal;
-  EntityInfoArr obstacles;
-  // gameplay
-  b8 flip_gravity;
-  b8 inside_teleporter;
-  b8 teleporting;
-  r32 gravity_diry;
-  r32 effective_force;
-  Vec2 player_velocity;
-  r64 gravity_flip_timer;
+    // the default size the game is designed around
+    Vec2 screen_size;
+    // the scaling factor to increase/decrease size of game assets
+    Vec2 render_scale;
+    // the smallest size a unit can be. This scales with render_scale
+    Vec2 atom_size;
+    Rect camera_bounds;
+    
+    // level
+    // 0: in progress, 1: complete
+    b8 level_state;
+    s32 level_index;
+    Str256 level_path_base;
+    Str256 level_name;
+    Level game_level;
+    EntityInfo player;
+    EntityInfo goal;
+    EntityInfoArr obstacles;
+    // interaction
+    IVec2 mouse_position;
+    b8 mouse_down;
+    b8 mouse_up;
+    // gameplay
+    b8 flip_gravity;
+    b8 inside_teleporter;
+    b8 teleporting;
+    r32 gravity_diry;
+    r32 effective_force;
+    Vec2 player_velocity;
+    r64 gravity_flip_timer;
+    // rendering
+    GLRenderer renderer;
 };
 
-Rect rect(Vec3 position, Vec2 size) {
+Rect rect(Vec2 position, Vec2 size) {
   Rect r = {0};
 
   r.lb.x = position.x;
@@ -403,7 +418,7 @@ void load_level(GameState *state, Arena *level_arena, Str256 level_path) {
 	    e.raw_position.z
 	};
 	e.size = e.raw_size * state->atom_size;
-	e.bounds = rect(e.position, e.size);
+	e.bounds = rect(e.position.v2(), e.size);
 
 	EntityInfo o;
 	o.id = e.id;
@@ -486,12 +501,98 @@ Vec2 get_screen_position_from_percent(GameState state, Vec2 v) {
   return screen_pos;
 }
 
+struct UiButton {
+    r32 font_size;
+    Vec2 size;
+    Vec2 padding;
+    Vec3 position;
+
+    // behavior
+    Vec3 bgd_color_primary;
+    Vec3 bgd_color_hover;
+    Vec3 bgd_color_pressed;
+
+    Vec3 font_color_primary;
+    Vec3 font_color_hover;
+    Vec3 font_color_pressed;
+
+    Str256 text;
+};
+
+// This function handles drawing, interaction and rendering logic for 
+// an immediate mode button
+ButtonState ui_button(GameState state, UiButton button) {
+    ButtonState btn_state = ButtonState::NONE;
+
+    Vec2 pos = get_screen_position_from_percent(
+	state, button.position.v2()
+    );
+
+    Vec2 pad = get_screen_position_from_percent(
+	state, button.padding
+    );
+    Vec2 quad_size = button.size * state.render_scale;
+    Vec2 pos_adjusted = pos + quad_size/2.0f;
+
+    r32 font_size = button.font_size * state.render_scale.y;
+    if (!font_size) {
+	font_size = 0.6f * quad_size.y;
+    }
+    Vec2 txt_pos = pos + pad;
+
+    b8 is_mouse_on_button = 0;
+    {
+	// check_if_mouse_on_button
+	Rect btn_rect = rect(pos, quad_size);
+	is_mouse_on_button = (
+	    (state.mouse_position.x >= btn_rect.lb.x && 
+	    state.mouse_position.y >= btn_rect.lb.y) &&
+	    (state.mouse_position.x <= btn_rect.rt.x &&
+	    state.mouse_position.y <= btn_rect.rt.y)
+	);
+    }
+    Vec3 bgd_color = button.bgd_color_primary;
+    if (is_mouse_on_button) {
+	if (state.mouse_down) {
+	    // pressed
+	    bgd_color = button.bgd_color_pressed;
+	    btn_state = ButtonState::PRESSED;
+	} else if (state.mouse_up) {
+	    btn_state = ButtonState::CLICK;
+	} else {
+	    // hover
+	    bgd_color = button.bgd_color_hover;
+	    btn_state = ButtonState::HOVER;
+	}
+    }
+
+    gl_draw_quad(
+	state.renderer.quad, 
+	&state.renderer.ui_cam,
+	Vec3{
+	    pos_adjusted.x, 
+	    pos_adjusted.y, 
+	    button.position.z,
+	}, 
+	quad_size, 
+	bgd_color);
+
+    gl_render_text(
+	&state.renderer,
+	button.text.buffer,
+	Vec3{txt_pos.x, txt_pos.y, button.position.z},
+	Vec3{0.0f, 0.0f, 0.0f},
+	font_size);
+
+    return btn_state;
+}
+
 // @section: main
 int main(int argc, char* argv[])
 {
     Vec2 scr_dims = Vec2{1920, 1080};
 
-    Vec2 render_dims = Vec2{1280, 720};
+    Vec2 render_dims = Vec2{2560, 1440};
   
   {
       // entity configs setup
@@ -501,6 +602,7 @@ int main(int argc, char* argv[])
     entity_colors[INVERT_GRAVITY] = Vec3{1.0f, 0.0f, 0.0f};
     entity_colors[TELEPORT] = Vec3{0.0f, 0.0f, 0.0f};
 
+    entity_z[TEXT] = -3.0f;
     entity_z[DEBUG_LINE] = -4.0f;
     r32 entity_base_z = -5.0f;
     entity_z[OBSTACLE] = entity_base_z - 1.0f;
@@ -526,7 +628,9 @@ int main(int argc, char* argv[])
                                         SDL_WINDOWPOS_UNDEFINED, 
                                         SDL_WINDOWPOS_UNDEFINED,
                                         render_dims.x, render_dims.y,
-                                        SDL_WINDOW_OPENGL | SDL_WINDOW_FULLSCREEN_DESKTOP);
+                                        SDL_WINDOW_OPENGL
+					| SDL_WINDOW_FULLSCREEN_DESKTOP
+					);
 
   SDL_GLContext context = SDL_GL_CreateContext(window);
   if (!context)
@@ -544,8 +648,9 @@ int main(int argc, char* argv[])
   // vsync controls: 0 = OFF | 1 = ON (Default)
   SDL_GL_SetSwapInterval(0);
   
-  GLRenderer renderer;
-  memset(&renderer, 0, sizeof(GLRenderer));
+  GameState state = {0};
+  GLRenderer *renderer = &state.renderer;
+  memset(renderer, 0, sizeof(GLRenderer));
 
   u32 pos_ele_count =  BATCH_SIZE * 4*6;
   u32 color_ele_count = BATCH_SIZE * 3*6;
@@ -555,14 +660,14 @@ int main(int argc, char* argv[])
   Arena batch_arena;
   // quad batch buffers
   arena_init(&batch_arena, (unsigned char*)batch_memory, mem_size*sizeof(r32));
-  array_init(&batch_arena, &(renderer.cq_pos_batch), pos_ele_count);
-  array_init(&batch_arena, &(renderer.cq_color_batch), color_ele_count);
+  array_init(&batch_arena, &(renderer->cq_pos_batch), pos_ele_count);
+  array_init(&batch_arena, &(renderer->cq_color_batch), color_ele_count);
 
   // line batch buffers
   u32 line_pos_ele_count = BATCH_SIZE * 4 * 2;
   u32 line_color_ele_count = BATCH_SIZE * 3 * 2;
-  array_init(&batch_arena, &(renderer.line_pos_batch), line_pos_ele_count);
-  array_init(&batch_arena, &(renderer.line_color_batch), line_color_ele_count);
+  array_init(&batch_arena, &(renderer->line_pos_batch), line_pos_ele_count);
+  array_init(&batch_arena, &(renderer->line_color_batch), line_color_ele_count);
 
 
   u32 quad_sp = gl_shader_program_from_path(
@@ -577,15 +682,15 @@ int main(int argc, char* argv[])
     "./source/shaders/cq_batched.vs.glsl",
     "./source/shaders/cq_batched.fs.glsl"
   );
-  u32 quad_vao = gl_setup_colored_quad(quad_sp);
-  renderer.cq_sp = quad_sp;
-  renderer.cq_vao = quad_vao;
+  u32 quad_vao = gl_setup_quad(quad_sp);
+  renderer->quad.sp = quad_sp;
+  renderer->quad.vao = quad_vao;
 
-  renderer.cq_batch_sp = cq_batch_sp;
-  gl_setup_colored_quad_optimized(&renderer, cq_batch_sp);
+  renderer->cq_batch_sp = cq_batch_sp;
+  gl_setup_colored_quad_optimized(renderer, cq_batch_sp);
 
-  renderer.line_sp = cq_batch_sp;
-  gl_setup_line(&renderer, cq_batch_sp);
+  renderer->line_sp = cq_batch_sp;
+  gl_setup_line(renderer, cq_batch_sp);
   
   
   Vec2 render_scale = Vec2{(r32)render_dims.x/scr_dims.x, (r32)render_dims.y/scr_dims.y};
@@ -596,46 +701,47 @@ int main(int argc, char* argv[])
 
     size_t fsize = 0;
     unsigned char *font_buffer = (unsigned char*)SDL_LoadFile("./assets/fonts/Roboto.ttf", &fsize);
-    stbtt_InitFont(&renderer.ui_text.font, font_buffer, 0);
+    stbtt_InitFont(&renderer->ui_text.font, font_buffer, 0);
 
-    renderer.ui_text.sp = ui_text_sp;
-    renderer.ui_text.chunk_size = 128;
-    renderer.ui_text.pixel_size = 32*render_scale.x;
-    renderer.ui_text.transforms = (Mat4*)malloc(
-      renderer.ui_text.chunk_size*sizeof(Mat4)
+    renderer->ui_text.sp = ui_text_sp;
+    renderer->ui_text.chunk_size = 128;
+    renderer->ui_text.pixel_size = 32*render_scale.x;
+    renderer->ui_text.transforms = (Mat4*)malloc(
+      renderer->ui_text.chunk_size*sizeof(Mat4)
     );
-    renderer.ui_text.char_indexes = (s32*)malloc(
-      renderer.ui_text.chunk_size*sizeof(s32)
+    renderer->ui_text.char_indexes = (s32*)malloc(
+      renderer->ui_text.chunk_size*sizeof(s32)
     );
-    renderer.ui_text.char_map = (TextChar*)malloc(
+    renderer->ui_text.char_map = (TextChar*)malloc(
       128*sizeof(TextChar)
     );
 
-    gl_setup_text(&renderer.ui_text);
+    gl_setup_text(&renderer->ui_text);
 }
 
   
   // ============
   // setup camera
   Vec3 preset_up_dir = Vec3{0.0f, 1.0f, 0.0f};
-  renderer.preset_up_dir = preset_up_dir;
-  renderer.cam_update = false;
-  renderer.cam_pos = Vec3{0.0f, 0.0f, 1.0f};
-  renderer.cam_look = camera_look_around(TO_RAD(0.0f), -TO_RAD(90.0f));
-  renderer.cam_view = camera_create4m(
-    renderer.cam_pos, 
-    add3v(renderer.cam_pos, renderer.cam_look), renderer.preset_up_dir
+  renderer->preset_up_dir = preset_up_dir;
+  renderer->cam_update = false;
+  renderer->cam_pos = Vec3{0.0f, 0.0f, 1.0f};
+  renderer->cam_look = camera_look_around(TO_RAD(0.0f), -TO_RAD(90.0f));
+  renderer->cam_view = camera_create4m(
+    renderer->cam_pos, 
+    add3v(renderer->cam_pos, renderer->cam_look), renderer->preset_up_dir
   );
-  renderer.cam_proj = orthographic4m(
+  renderer->cam_proj = orthographic4m(
     0.0f, (r32)render_dims.x,
     0.0f, (r32)render_dims.y,
     0.1f, 15.0f
   );
   // fixed_screen_camera
-  renderer.ui_cam_update = 1;
-  renderer.ui_cam_pos = renderer.cam_pos;
-  renderer.ui_cam_look = renderer.cam_look;
-  renderer.ui_cam_view = renderer.cam_view;
+  renderer->ui_cam.update = 1;
+  renderer->ui_cam.pos = renderer->cam_pos;
+  renderer->ui_cam.look = renderer->cam_look;
+  renderer->ui_cam.view = renderer->cam_view;
+  renderer->ui_cam.proj = renderer->cam_proj;
 
   // @thinking: level object handling
   // there should be a most smallest supported unit
@@ -645,7 +751,6 @@ int main(int argc, char* argv[])
   // scaling factor
   Vec2 atom_size = Vec2{64.0f, 64.0f}*render_scale;
 
-  GameState state = {0};
   state.atom_size = atom_size;
   state.screen_size = scr_dims;
   state.render_scale = render_scale;
@@ -674,7 +779,7 @@ int main(int argc, char* argv[])
   // @todo: rename rect members (makes more sense)
   // tl -> lt
   // br -> rb
-  state.camera_bounds = rect(renderer.cam_pos, camera_screen_size);
+  state.camera_bounds = rect(renderer->cam_pos.v2(), camera_screen_size);
 
   // @section: level elements
   
@@ -685,7 +790,7 @@ int main(int argc, char* argv[])
   Arena level_arena;
   size_t arena_size = max_level_entities*(sizeof(Entity) + sizeof(EntityInfo));
   arena_init(&level_arena, (unsigned char*)level_mem, arena_size);
-  setup_level(&state, &renderer, &level_arena);
+  setup_level(&state, &state.renderer, &level_arena);
 
   // gameplay camera movement stuff
   Vec2 cam_lt_limit = {0};
@@ -711,16 +816,15 @@ int main(int argc, char* argv[])
   
   b8 game_running = 1;
 
-  b8 game_play = 1;
+  b8 game_playing = 1;
   FrameTimer timer = frametimer();
 
   while (game_running) 
   {
     controller.jump = 0;
     controller.toggle_gravity = 0;
+    state.mouse_up = 0;
 
-
-    IVec2 mouse_position;
     IVec2 mouse_position_world;
     IVec2 mouse_position_clamped;
     SDL_Event ev;
@@ -732,14 +836,30 @@ int main(int argc, char* argv[])
           {
 		game_running = 0;
           } break;
+	case (SDL_MOUSEBUTTONUP):
+	    {
+		SDL_GetMouseState(&state.mouse_position.x, &state.mouse_position.y);
+		state.mouse_position.y = render_dims.y - state.mouse_position.y;
+		state.mouse_down = 0;
+		state.mouse_up = 1;
+	    } break;
+	case (SDL_MOUSEBUTTONDOWN):
+	    {
+		u32 btn_x = SDL_GetMouseState(&state.mouse_position.x, &state.mouse_position.y);
+		state.mouse_position.y = render_dims.y - state.mouse_position.y;
+		if (SDL_BUTTON(btn_x) == SDL_BUTTON(SDL_BUTTON_LEFT)) {
+		    state.mouse_down = 1;
+		    state.mouse_up = 0;
+		}
+	    } break;
 	case (SDL_MOUSEMOTION):
 	  {
-	      SDL_GetMouseState(&mouse_position.x, &mouse_position.y);
+	      SDL_GetMouseState(&state.mouse_position.x, &state.mouse_position.y);
 	      // flip mouse y to map it Y at Top -> Y at Bottom (like in maths)
-	      mouse_position.y = render_dims.y - mouse_position.y;
+	      state.mouse_position.y = render_dims.y - state.mouse_position.y;
 	      // get mouse world position
-	      mouse_position_world.x = mouse_position.x + (s32)renderer.cam_pos.x;
-	      mouse_position_world.y = mouse_position.y + (s32)renderer.cam_pos.y;
+	      mouse_position_world.x = state.mouse_position.x + (s32)renderer->cam_pos.x;
+	      mouse_position_world.y = state.mouse_position.y + (s32)renderer->cam_pos.y;
 	      // clamp mouse position based off of the grids we draw (this will make level object placement easier)
 	      mouse_position_clamped.x = mouse_position_world.x - ((mouse_position_world.x) % (s32)(atom_size.x));
 	      mouse_position_clamped.y = mouse_position_world.y - ((mouse_position_world.y) % (s32)(atom_size.y));
@@ -750,7 +870,7 @@ int main(int argc, char* argv[])
 	    if (ev.key.keysym.sym == SDLK_f)
 	    {
 		// maximise/minimize
-#if 1
+#if 0
 		// @note: This is janky, so will need to find some other workaround for this.
 		// get window display index
 		s32 display_ind = SDL_GetWindowDisplayIndex(window);
@@ -764,41 +884,6 @@ int main(int argc, char* argv[])
 		    SDL_SetWindowSize(window, render_dims.x, render_dims.y);
 		    fullscreen = !fullscreen;
 		    // @note: I may need to recreate the entire opengl context and what not
-#if 0
-		    context = SDL_GL_CreateContext(window);
-		    SDL_GL_MakeCurrent(window, context);
-		    // load glad
-		    if (!gladLoadGLLoader((GLADloadproc)SDL_GL_GetProcAddress)) {
-			    printf("ERROR :: Failed to initialize Glad\n");
-			    return -1;
-		    }
-		    // vsync controls: 0 = OFF | 1 = ON (Default)
-		    SDL_GL_SetSwapInterval(0);
-		      
-		      quad_sp = gl_shader_program_from_path(
-			"./source/shaders/colored_quad.vs.glsl", 
-			"./source/shaders/colored_quad.fs.glsl"
-		      );
-		      ui_text_sp = gl_shader_program_from_path(
-			"./source/shaders/ui_text.vs.glsl",
-			"./source/shaders/ui_text.fs.glsl"
-		      );
-		      cq_batch_sp = gl_shader_program_from_path(
-			"./source/shaders/cq_batched.vs.glsl",
-			"./source/shaders/cq_batched.fs.glsl"
-		      );
-		      quad_vao = gl_setup_colored_quad(quad_sp);
-		      renderer.cq_sp = quad_sp;
-		      renderer.cq_vao = quad_vao;
-
-		      renderer.cq_batch_sp = cq_batch_sp;
-		      gl_setup_colored_quad_optimized(&renderer, cq_batch_sp);
-
-		      renderer.line_sp = cq_batch_sp;
-		      gl_setup_line(&renderer, cq_batch_sp);
-		    gl_setup_text(&renderer.ui_text);
-#endif
-		  
 		}
 
 		int brk = 1;
@@ -807,7 +892,7 @@ int main(int argc, char* argv[])
             if (ev.key.keysym.sym == SDLK_ESCAPE)
             {
 		// gamemode paused
-		game_play = !game_play;
+		game_playing = !game_playing;
             }
             if (ev.key.keysym.sym == SDLK_w)
             {
@@ -839,16 +924,16 @@ int main(int argc, char* argv[])
 	    if (ev.key.keysym.sym == SDLK_HOME)
 	    {
 		state.level_index = MAX(state.level_index - 1, 0);
-		setup_level(&state, &renderer, &level_arena);
+		setup_level(&state, &state.renderer, &level_arena);
 	    }
 	    if (ev.key.keysym.sym == SDLK_END)
 	    {
 		state.level_index = MIN(state.level_index + 1, level_count-1);
-		setup_level(&state, &renderer, &level_arena);
+		setup_level(&state, &state.renderer, &level_arena);
 	    }
 	    if (ev.key.keysym.sym == SDLK_F5)
 	    {
-		setup_level(&state, &renderer, &level_arena);
+		setup_level(&state, &state.renderer, &level_arena);
 	    }
           } break;
         case (SDL_KEYUP):
@@ -883,11 +968,11 @@ int main(int argc, char* argv[])
       }
     }
 
-    if (game_play) {
+    if (game_playing) {
 	// @section: state based loading
 	if (state.level_state == 1) {
 	    state.level_index = clampi(state.level_index+1, 0, level_count-1);
-	    setup_level(&state, &renderer, &level_arena);
+	    setup_level(&state, &state.renderer, &level_arena);
 	}
 	
 	// @section: input processing
@@ -1107,7 +1192,7 @@ int main(int argc, char* argv[])
 	next_player_position.x = player.position.x + pd_1.x;
 	next_player_position.y = player.position.y + pd_1.y;
 
-	Rect player_next = rect(next_player_position, player.size);
+	Rect player_next = rect(next_player_position.v2(), player.size);
 	
 	b8 is_collide_x = 0;
 	b8 is_collide_y = 0;
@@ -1272,7 +1357,7 @@ int main(int argc, char* argv[])
 
 	{
 	    // @step: update player variables
-	    player.bounds = rect(player.position, player.size);
+	    player.bounds = rect(player.position.v2(), player.size);
 	    was_colliding = collidex || collidey;
 	    collidex = is_collide_x;
 	    collidey = is_collide_y;
@@ -1357,35 +1442,35 @@ int main(int argc, char* argv[])
 			distance_scaler.y = 4.0f;
 		    }
 		}
-		renderer.cam_pos.x += camera_stepx*timer.tDeltaMS/distance_scaler.x;
-		renderer.cam_pos.y += camera_stepy*timer.tDeltaMS/distance_scaler.y;
+		renderer->cam_pos.x += camera_stepx*timer.tDeltaMS/distance_scaler.x;
+		renderer->cam_pos.y += camera_stepy*timer.tDeltaMS/distance_scaler.y;
 
-		renderer.cam_update = 1;
+		renderer->cam_update = 1;
 	    }
 
 
 	    b8 player_moving_up = p_motion_dir.y == state.gravity_diry*1 && !is_collide_y;
 	    b8 player_moving_down = p_motion_dir.y == state.gravity_diry*-1 && !is_collide_y;
 
-	    player_camera_offset = player.position.v2() - renderer.cam_pos.v2();
+	    player_camera_offset = player.position.v2() - renderer->cam_pos.v2();
 	    // @step: player moving at edges of the screen
 	    if (player_camera_offset.x <= cam_lt_limit.x && p_motion_dir.x == -1) {
-		renderer.cam_pos.x += pd_1.x;
-		renderer.cam_update = 1;
+		renderer->cam_pos.x += pd_1.x;
+		renderer->cam_update = 1;
 	    }
 	    if (player_camera_offset.y >= cam_lt_limit.y && 
 		    player_moving_up) {
-		renderer.cam_pos.y += pd_1.y;
-		renderer.cam_update = 1;
+		renderer->cam_pos.y += pd_1.y;
+		renderer->cam_update = 1;
 	    }
 	    if (player_camera_offset.x >= cam_rb_limit.x && p_motion_dir.x == 1) {
-		renderer.cam_pos.x += pd_1.x;
-		renderer.cam_update = 1;
+		renderer->cam_pos.x += pd_1.x;
+		renderer->cam_update = 1;
 	    }
 	    if (player_camera_offset.y <= cam_rb_limit.y && 
 		    player_moving_down) {
-		renderer.cam_pos.y += pd_1.y;
-		renderer.cam_update = 1;
+		renderer->cam_pos.y += pd_1.y;
+		renderer->cam_update = 1;
 	    }
 
 	}
@@ -1393,14 +1478,14 @@ int main(int argc, char* argv[])
 
     {
 	// @step: update camera variables
-	if (renderer.cam_update == true) {
-	    renderer.cam_view = camera_create4m(
-		    renderer.cam_pos,
-		    add3v(renderer.cam_pos, renderer.cam_look),
-		    renderer.preset_up_dir
+	if (renderer->cam_update == true) {
+	    renderer->cam_view = camera_create4m(
+		    renderer->cam_pos,
+		    add3v(renderer->cam_pos, renderer->cam_look),
+		    renderer->preset_up_dir
 		    );
-	    renderer.cam_update = false;
-	    state.camera_bounds = rect(renderer.cam_pos, camera_screen_size);
+	    renderer->cam_update = false;
+	    state.camera_bounds = rect(renderer->cam_pos.v2(), camera_screen_size);
 	}
     }
     
@@ -1410,7 +1495,7 @@ int main(int argc, char* argv[])
     
     // @section: rendering
     // @step: render draw lines
-    if (game_play) {
+    if (game_playing) {
 	{
 	    // @step: draw vertical lines
 	    s32 line_index = (s32)state.camera_bounds.lb.x/atom_size.x;
@@ -1428,7 +1513,7 @@ int main(int argc, char* argv[])
 		};
 
 		gl_draw_line(
-			&renderer,
+			&state.renderer,
 			start,
 			end,
 			Vec3{0.1, 0.1, 0.1}
@@ -1453,7 +1538,7 @@ int main(int argc, char* argv[])
 		};
 
 		gl_draw_line(
-			&renderer,
+			&state.renderer,
 			start,
 			end,
 			Vec3{0.1, 0.1, 0.1}
@@ -1461,7 +1546,7 @@ int main(int argc, char* argv[])
 	    
 		line_index++;
 	    }
-	    gl_line_flush(&renderer);
+	    gl_line_flush(&state.renderer);
 	}
 
 	// render_entities
@@ -1474,44 +1559,73 @@ int main(int argc, char* argv[])
 	    };
 	    Vec3 color = entity_colors[entity.type];
 	    gl_draw_colored_quad_optimized(
-		    &renderer,
+		    &state.renderer,
 		    entity_center,
 		    entity.size,
 		    color
 	    );
 	}
 
-	gl_cq_flush(&renderer);
+	gl_cq_flush(&state.renderer);
 
-	array_clear(&renderer.cq_pos_batch);
-	array_clear(&renderer.cq_color_batch);
-	renderer.cq_batch_count = 0;
+	array_clear(&renderer->cq_pos_batch);
+	array_clear(&renderer->cq_color_batch);
+	renderer->cq_batch_count = 0;
 	
 	char fmt_buffer[50];
 	sprintf(fmt_buffer, "frametime: %f", timer.tDelta);
-	gl_render_text(&renderer,
+	gl_render_text(&state.renderer,
 		       fmt_buffer,
-		       Vec2{900.0f, 90.0f},      // position
+		       Vec3{900.0f, 90.0f, entity_z[TEXT]},      // position
 		       Vec3{0.0f, 0.0f, 0.0f},
 		       28.0f*render_scale.x);   // color
 	
 	sprintf(fmt_buffer, "GridX: %d, GridY: %d", mouse_position_clamped.x, mouse_position_clamped.y);
 	gl_render_text(
-		&renderer,
+		&state.renderer,
 		fmt_buffer,
-		Vec2{0.0f, 0.0f},
+		Vec3{0.0f, 0.0f, entity_z[TEXT]},
 		Vec3{0.0f, 0.0f, 0.0f}, 
 		28.0f*render_scale.x);
 
-	sprintf(fmt_buffer, "WorldMouseX: %d, WorldMouseY: %d", mouse_position_world.x, mouse_position_world.y);
-	gl_render_text(
-		&renderer,
-		fmt_buffer,
-		Vec2{0.0f, 40.0f},
-		Vec3{0.0f, 0.0f, 0.0f}, 
-		28.0f*render_scale.x);
-	    
-    }     
+    } else {
+	    renderer->ui_cam.update = 1;
+
+	    UiButton button = {0};
+	    button.size = Vec2{120.0f, 40.0f};
+	    button.padding = Vec2{1.0f, 0.5f};
+	    button.bgd_color_primary = Vec3{1.0f, 1.0f, 1.0f};
+	    button.bgd_color_hover = Vec3{0.5f, 1.0f, 0.5f};
+	    button.bgd_color_pressed = Vec3{1.0f, 0.5f, 0.5f};
+
+	    button.text = str256("Resume");
+	    button.position = Vec3{10.0f, 40.0f, entity_z[TEXT]}; 
+	    if (ui_button(state, button) == ButtonState::CLICK) {
+		game_playing = 1;
+	    }
+
+	    button.text = str256("Settings");
+	    button.position = Vec3{10.0f, 32.0f, entity_z[TEXT]};
+	    if (ui_button(state, button) == ButtonState::CLICK) {
+		// game_playing = 1;
+	    }
+
+	    button.text = str256("Quit");
+	    button.position = Vec3{10.0f, 24.0f, entity_z[TEXT]};
+	    button.padding = Vec2{ 2.0f, 0.5f };
+	    if (ui_button(state, button) == ButtonState::CLICK) {
+		game_running = 0;
+	    }
+    }
+
+    char fmt_buffer[50];
+    sprintf(fmt_buffer, "WorldMouseX: %d, WorldMouseY: %d", mouse_position_world.x, mouse_position_world.y);
+    gl_render_text(
+	    &state.renderer,
+	    fmt_buffer,
+	    Vec3{0.0f, 40.0f, entity_z[TEXT]},
+	    Vec3{0.0f, 0.0f, 0.0f}, 
+	    28.0f*render_scale.x);
 
     SDL_GL_SwapWindow(window);
 
@@ -1522,9 +1636,9 @@ int main(int argc, char* argv[])
   //ma_engine_uninit(&engine);
   free(level_mem);
   free(batch_memory);
-  free(renderer.ui_text.transforms);
-  free(renderer.ui_text.char_indexes);
-  free(renderer.ui_text.char_map);
+  free(state.renderer.ui_text.transforms);
+  free(state.renderer.ui_text.char_indexes);
+  free(state.renderer.ui_text.char_map);
   SDL_GL_DeleteContext(context);
   SDL_DestroyWindow(window);
   SDL_Quit();
