@@ -36,20 +36,35 @@ struct TextState {
   TextChar* char_map;
 };
 
+struct GlQuad {
+    u32 sp;
+    u32 vao;
+};
+
+struct CameraOrtho {
+    b8 update;
+    Vec3 up;
+    Vec3 pos;
+    Vec3 look;
+    Mat4 view;
+    Mat4 proj;
+};
+
 struct GLRenderer {
-  // colored quad
   b8  cq_init;
-  u32 cq_sp;
-  u32 cq_vao;
+  GlQuad quad;
+  // ui camera
+  CameraOrtho ui_cam;
+
   // camera
   Vec3 preset_up_dir;
   Mat4 cam_proj;
-  // ui camera
-  b8 ui_cam_update;
-  Vec3 ui_cam_pos;
-  Vec3 ui_cam_look;
-  Mat4 ui_cam_view;
+  //b8 ui_cam_update;
+  //Vec3 ui_cam_pos;
+  //Vec3 ui_cam_look;
+  //Mat4 ui_cam_view;
   // game camera
+  CameraOrtho game_cam;
   b8   cam_update;
   Vec3 cam_pos;
   Vec3 cam_look;
@@ -78,25 +93,23 @@ u32 gl_shader_program(char *vs, char *fs);
 u32 gl_shader_program_from_path(const char *vspath, const char *fspath);
 
 // ==================== QUADS ====================
-u32 gl_setup_colored_quad(u32 sp);
-void gl_draw_colored_quad(
-	GLRenderer* renderer,
-	Vec3 position,
-	Vec2 size,
-	Vec3 color
-    );
+u32 gl_setup_quad(u32 sp);
+void gl_draw_quad(GlQuad quad,
+		  CameraOrtho camera,
+		  Vec3 position,
+		  Vec2 size,
+		  Vec3 color);
 
 // batched renderer
 void gl_setup_colored_quad_optimized(
 	GLRenderer* renderer, 
-	u32 sp
-	);
+	u32 sp);
 void gl_draw_colored_quad_optimized(
 	GLRenderer* renderer,
 	Vec3 position,
 	Vec2 size,
-	Vec3 color
-	);
+	Vec3 color);
+
 void gl_cq_flush(GLRenderer *renderer);
 
 // ==================== LINE ====================
@@ -113,7 +126,7 @@ void gl_line_flush(GLRenderer *renderer);
 void gl_setup_text(TextState *uistate);
 void gl_render_text(GLRenderer *renderer, 
 		    char *text, 
-		    Vec2 position, 
+		    Vec3 position, 
 		    Vec3 color, 
 		    r32 font_size);
 void gl_text_flush(GLRenderer *renderer, u32 render_count);

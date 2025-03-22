@@ -1,6 +1,7 @@
 -xc++
 -std=c++11
 -Wall
+-Wno-missing-braces
 -I./include
 -I/usr/include
 -I/usr/local/include

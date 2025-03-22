@@ -85,7 +85,7 @@ u32 gl_shader_program_from_path(const char* vspath, const char* fspath)
   return shader_program;
 }
 
-u32 gl_setup_colored_quad(u32 sp)
+u32 gl_setup_quad(u32 sp)
 {
   // @todo: make this use index buffer maybe?
   r32 vertices[] = {
@@ -112,44 +112,44 @@ u32 gl_setup_colored_quad(u32 sp)
   return vao;
 }
 
-void gl_draw_colored_quad(
-  GLRenderer* renderer,
+void gl_draw_quad(
+  GlQuad quad,
+  CameraOrtho *camera,
   Vec3 position,
   Vec2 size,
   Vec3 color
 ) {
-  glEnable(GL_DEPTH_TEST);
-  glUseProgram(renderer->cq_sp);
-  if (renderer->cq_init == 0)
-  {
+    glEnable(GL_DEPTH_TEST);
+    glUseProgram(quad.sp);
+    if (camera->update) {
+	glUniformMatrix4fv(
+    	  glGetUniformLocation(quad.sp, "Projection"), 
+    	  1, GL_FALSE, (camera->proj).buffer
+    	);
+	camera->update = 0;
+    }
+    // setting quad size
+    Mat4 model = diag4m(1.0);
+    Mat4 scale = scaling_matrix4m(size.x/2.0f, size.y/2.0f, 0.0f);
+    model = multiply4m(scale, model);
+    // setting quad position
+    Mat4 translation = translation_matrix4m(position.x, position.y, position.z);
+    model = multiply4m(translation, model);
+    // setting color
+    glUniform3fv(glGetUniformLocation(quad.sp, "Color"), 1, color.data);
+    
     glUniformMatrix4fv(
-      glGetUniformLocation(renderer->cq_sp, "Projection"), 
-      1, GL_FALSE, (renderer->cam_proj).buffer
+      glGetUniformLocation(quad.sp, "Model"), 
+      1, GL_FALSE, model.buffer
     );
-    renderer->cq_init = 1;
-  }
-  // setting quad size
-  Mat4 model = diag4m(1.0);
-  Mat4 scale = scaling_matrix4m(size.x, size.y, 0.0f);
-  model = multiply4m(scale, model);
-  // setting quad position
-  Mat4 translation = translation_matrix4m(position.x, position.y, position.z);
-  model = multiply4m(translation, model);
-  // setting color
-  glUniform3fv(glGetUniformLocation(renderer->cq_sp, "Color"), 1, color.data);
-  
-  glUniformMatrix4fv(
-    glGetUniformLocation(renderer->cq_sp, "Model"), 
-    1, GL_FALSE, model.buffer
-  );
-
-  glUniformMatrix4fv(
-    glGetUniformLocation(renderer->cq_sp, "View"), 
-    1, GL_FALSE, (renderer->cam_view).buffer
-  );
-  
-  glBindVertexArray(renderer->cq_vao);
-  glDrawArrays(GL_TRIANGLES, 0, 6);
+    
+    glUniformMatrix4fv(
+      glGetUniformLocation(quad.sp, "View"), 
+      1, GL_FALSE, (camera->view).buffer
+    );
+    
+    glBindVertexArray(quad.vao);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
 }
 
 void gl_setup_colored_quad_optimized(
@@ -501,7 +501,7 @@ void gl_setup_text(TextState *uistate) {
 void gl_render_text(
 	GLRenderer *renderer, 
 	char *text,
-	Vec2 position, 
+	Vec3 position, 
 	Vec3 color, 
 	r32 font_size) {
     // render_text
@@ -510,19 +510,19 @@ void gl_render_text(
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
     glUseProgram(renderer->ui_text.sp);
-    if (renderer->ui_cam_update) {
+    if (renderer->ui_cam.update) {
 
 	glUniformMatrix4fv(
 		glGetUniformLocation(
 		    renderer->ui_text.sp, "View"),
-		1, GL_FALSE, renderer->ui_cam_view.buffer);
+		1, GL_FALSE, renderer->ui_cam.view.buffer);
 
 	glUniformMatrix4fv(
 		glGetUniformLocation(
 		    renderer->ui_text.sp, "Projection"),
-		1, GL_FALSE, renderer->cam_proj.buffer);
+		1, GL_FALSE, renderer->ui_cam.proj.buffer);
 
-	renderer->ui_cam_update = 0;
+	renderer->ui_cam.update = 0;
     }
     glUniform3fv(
 	    glGetUniformLocation(
@@ -569,7 +569,7 @@ void gl_render_text(
 	r32 ypos = liney + (baseline - render_scale*render_char.bbox0.y);
 
 	Mat4 sc = scaling_matrix4m(font_size, font_size, 1.0f);
-	Mat4 tr = translation_matrix4m(xpos, ypos, 0);
+	Mat4 tr = translation_matrix4m(xpos, ypos, position.z);
 	Mat4 model = multiply4m(tr, sc);
 	renderer->ui_text.transforms[running_index] = model;
 	renderer->ui_text.char_indexes[running_index] = 
