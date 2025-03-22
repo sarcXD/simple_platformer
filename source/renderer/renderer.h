@@ -95,7 +95,7 @@ u32 gl_shader_program_from_path(const char *vspath, const char *fspath);
 // ==================== QUADS ====================
 u32 gl_setup_quad(u32 sp);
 void gl_draw_quad(GlQuad quad,
-		  CameraOrtho camera,
+		  CameraOrtho *camera,
 		  Vec3 position,
 		  Vec2 size,
 		  Vec3 color);
