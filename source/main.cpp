@@ -69,6 +69,13 @@ enum ButtonState {
     CLICK	= 3
 };
 
+enum GameScreen {
+    MAIN_MENU	    = 0,
+    PAUSE_MENU	    = 1,
+    GAMEPLAY	    = 2,
+    SETTINGS_MENU   = 3,
+};
+
 enum PMoveState {
   NO_MOVE       = 0,
   MOVE          = 1,
@@ -501,10 +508,13 @@ Vec2 get_screen_position_from_percent(GameState state, Vec2 v) {
   return screen_pos;
 }
 
+struct DropdownOption {
+    Str256 label;
+};
+
 struct UiButton {
     r32 font_size;
     Vec2 size;
-    Vec2 padding;
     Vec3 position;
 
     // behavior
@@ -519,30 +529,82 @@ struct UiButton {
     Str256 text;
 };
 
-// This function handles drawing, interaction and rendering logic for 
-// an immediate mode button
+// @description: This is a very scrappy function that goes through the button render
+// logic and pre-computes items like text dimensions
+// It does not support, tabs and newlines
+Vec2 ui_button_get_text_dims(GLRenderer renderer, char *text, r32 font_size) {
+    Vec2 max_dims = Vec2{0, 0};
+
+    u32 running_index = 0;
+    r32 linex = 0;
+    r32 render_scale = font_size/(r32)renderer.ui_text.pixel_size;
+    r32 font_scale = renderer.ui_text.scale*render_scale;
+
+    char *char_iter = text;
+    while (*char_iter != '\0') {
+	TextChar render_char = renderer.ui_text.char_map[*char_iter];
+	if (*char_iter == ' ') {
+	    linex += (font_scale * render_char.advance);
+	    char_iter++;
+	    continue;
+	}
+	if (*char_iter == '\t' || *char_iter == '\n') {
+	    char_iter++;
+	    continue;
+	}
+
+	linex += (font_scale * render_char.advance);
+	char prev_char = *char_iter;
+	char_iter++;
+	char curr_char = *char_iter;
+
+	if (curr_char) {
+	    r32 kern = font_scale * stbtt_GetCodepointKernAdvance(&renderer.ui_text.font, prev_char, curr_char);
+	    linex += kern;
+	}
+	if (linex > max_dims.x) {
+	    max_dims.x = linex;
+	} 
+	r32 y1 = render_scale*render_char.size.y;
+	if (y1 > max_dims.y) {
+	    max_dims.y = y1; 
+	}
+	running_index++;
+	if (running_index >= renderer.ui_text.chunk_size) {
+	    return max_dims;
+	}
+    }
+    return max_dims;
+}
+
+// @description: This function handles drawing, interaction and rendering logic 
+// for an immediate mode button
 ButtonState ui_button(GameState state, UiButton button) {
     ButtonState btn_state = ButtonState::NONE;
-
     Vec2 pos = get_screen_position_from_percent(
 	state, button.position.v2()
     );
-
-    Vec2 pad = get_screen_position_from_percent(
-	state, button.padding
-    );
     Vec2 quad_size = button.size * state.render_scale;
-    Vec2 pos_adjusted = pos + quad_size/2.0f;
 
+    // @step: get text size and position
     r32 font_size = button.font_size * state.render_scale.y;
     if (!font_size) {
 	font_size = 0.6f * quad_size.y;
     }
-    Vec2 txt_pos = pos + pad;
+    Vec2 txt_dims = ui_button_get_text_dims(state.renderer, 
+					    button.text.buffer, 
+					    font_size);
+    r32 txt_base_offsety = -5.0f*state.render_scale.y;
+    Vec2 txt_center_offset = Vec2{
+	(quad_size.x - txt_dims.x)/2.0f,
+	(quad_size.y - txt_dims.y)/2.0f + txt_base_offsety
+    };
+    Vec2 txt_pos = pos + txt_center_offset;
 
+    // @step: get button color and state
     b8 is_mouse_on_button = 0;
     {
-	// check_if_mouse_on_button
+	// :check_if_mouse_on_button
 	Rect btn_rect = rect(pos, quad_size);
 	is_mouse_on_button = (
 	    (state.mouse_position.x >= btn_rect.lb.x && 
@@ -570,8 +632,8 @@ ButtonState ui_button(GameState state, UiButton button) {
 	state.renderer.quad, 
 	&state.renderer.ui_cam,
 	Vec3{
-	    pos_adjusted.x, 
-	    pos_adjusted.y, 
+	    pos.x + quad_size.x/2.0f, 
+	    pos.y + quad_size.y/2.0f, 
 	    button.position.z,
 	}, 
 	quad_size, 
@@ -584,6 +646,7 @@ ButtonState ui_button(GameState state, UiButton button) {
 	Vec3{0.0f, 0.0f, 0.0f},
 	font_size);
 
+
     return btn_state;
 }
 
@@ -592,7 +655,7 @@ int main(int argc, char* argv[])
 {
     Vec2 scr_dims = Vec2{1920, 1080};
 
-    Vec2 render_dims = Vec2{2560, 1440};
+    Vec2 render_dims = Vec2{1920, 1080};
   
   {
       // entity configs setup
@@ -649,6 +712,7 @@ int main(int argc, char* argv[])
   SDL_GL_SetSwapInterval(0);
   
   GameState state = {0};
+  enum GameScreen game_screen = GAMEPLAY;
   GLRenderer *renderer = &state.renderer;
   memset(renderer, 0, sizeof(GLRenderer));
 
@@ -690,7 +754,7 @@ int main(int argc, char* argv[])
   gl_setup_colored_quad_optimized(renderer, cq_batch_sp);
 
   renderer->line_sp = cq_batch_sp;
-  gl_setup_line(renderer, cq_batch_sp);
+  gl_setup_line_batch(renderer, cq_batch_sp);
   
   
   Vec2 render_scale = Vec2{(r32)render_dims.x/scr_dims.x, (r32)render_dims.y/scr_dims.y};
@@ -816,7 +880,6 @@ int main(int argc, char* argv[])
   
   b8 game_running = 1;
 
-  b8 game_playing = 1;
   FrameTimer timer = frametimer();
 
   while (game_running) 
@@ -892,7 +955,13 @@ int main(int argc, char* argv[])
             if (ev.key.keysym.sym == SDLK_ESCAPE)
             {
 		// gamemode paused
-		game_playing = !game_playing;
+		if (game_screen == GAMEPLAY) {
+		    game_screen = PAUSE_MENU;
+		} else if (game_screen == SETTINGS_MENU) {
+		    game_screen = PAUSE_MENU;
+		} else if (game_screen == PAUSE_MENU) {
+		    game_screen = GAMEPLAY;
+		}
             }
             if (ev.key.keysym.sym == SDLK_w)
             {
@@ -968,7 +1037,7 @@ int main(int argc, char* argv[])
       }
     }
 
-    if (game_playing) {
+    if (game_screen == GAMEPLAY) {
 	// @section: state based loading
 	if (state.level_state == 1) {
 	    state.level_index = clampi(state.level_index+1, 0, level_count-1);
@@ -1495,7 +1564,7 @@ int main(int argc, char* argv[])
     
     // @section: rendering
     // @step: render draw lines
-    if (game_playing) {
+    if (game_screen == GAMEPLAY) {
 	{
 	    // @step: draw vertical lines
 	    s32 line_index = (s32)state.camera_bounds.lb.x/atom_size.x;
@@ -1512,7 +1581,7 @@ int main(int argc, char* argv[])
 		    entity_z[DEBUG_LINE]
 		};
 
-		gl_draw_line(
+		gl_draw_line_batch(
 			&state.renderer,
 			start,
 			end,
@@ -1537,7 +1606,7 @@ int main(int argc, char* argv[])
 			entity_z[DEBUG_LINE]
 		};
 
-		gl_draw_line(
+		gl_draw_line_batch(
 			&state.renderer,
 			start,
 			end,
@@ -1546,7 +1615,7 @@ int main(int argc, char* argv[])
 	    
 		line_index++;
 	    }
-	    gl_line_flush(&state.renderer);
+	    gl_flush_line_batch(&state.renderer);
 	}
 
 	// render_entities
@@ -1593,7 +1662,6 @@ int main(int argc, char* argv[])
 
 	    UiButton button = {0};
 	    button.size = Vec2{120.0f, 40.0f};
-	    button.padding = Vec2{1.0f, 0.5f};
 	    button.bgd_color_primary = Vec3{1.0f, 1.0f, 1.0f};
 	    button.bgd_color_hover = Vec3{0.5f, 1.0f, 0.5f};
 	    button.bgd_color_pressed = Vec3{1.0f, 0.5f, 0.5f};
@@ -1601,25 +1669,127 @@ int main(int argc, char* argv[])
 	    button.text = str256("Resume");
 	    button.position = Vec3{10.0f, 40.0f, entity_z[TEXT]}; 
 	    if (ui_button(state, button) == ButtonState::CLICK) {
-		game_playing = 1;
+		game_screen = GAMEPLAY;
 	    }
 
 	    button.text = str256("Settings");
 	    button.position = Vec3{10.0f, 32.0f, entity_z[TEXT]};
 	    if (ui_button(state, button) == ButtonState::CLICK) {
-		// game_playing = 1;
+		game_screen = SETTINGS_MENU;
 	    }
 
 	    button.text = str256("Quit");
 	    button.position = Vec3{10.0f, 24.0f, entity_z[TEXT]};
-	    button.padding = Vec2{ 2.0f, 0.5f };
 	    if (ui_button(state, button) == ButtonState::CLICK) {
 		game_running = 0;
+	    }
+
+	    // settings menu
+	    if (game_screen == SETTINGS_MENU) {
+		UiButton back_button = button;
+
+		back_button.text = str256("Apply");
+		back_button.position = Vec3{30.0f, 40.0f, entity_z[TEXT]};
+		gl_render_text(
+		    renderer, "Resolution", 
+		    Vec3{800, 800, entity_z[TEXT]}, 
+		    Vec3{0.0f, 0.0f, 0.0f}, 24.0f*state.render_scale.y
+		);
+		{
+		    // @params
+		    Vec3 ms_value_pos = Vec3{1000.0f, 800.0f, entity_z[TEXT]};
+		    Vec2 ms_value_size = Vec2{120.0f, 40.0f};
+
+		    Vec3 ms_value_pos_adjusted = ms_value_pos; 
+		    ms_value_pos_adjusted.x += ms_value_size.x/2.0f;
+		    ms_value_pos_adjusted.y += ms_value_size.y/2.0f;
+
+		    // draw multi select value box
+		    gl_draw_quad(
+			state.renderer.quad,
+			&state.renderer.ui_cam,
+			ms_value_pos_adjusted,
+			ms_value_size,
+			Vec3{1.0f, 1.0f, 1.0f}
+		    );
+		    static bool is_toggle_open = false;
+		    {
+			Vec3 ms_toggle_pos = Vec3{
+			    ms_value_pos.x + ms_value_size.x, 
+			    ms_value_pos.y, 
+			    ms_value_pos.z
+			};
+			Vec2 ms_toggle_size = Vec2{40.0f, ms_value_size.y};
+			Vec3 ms_toggle_pos_adjusted = ms_toggle_pos;
+			ms_toggle_pos_adjusted.x += ms_toggle_size.x/2.0f;
+			ms_toggle_pos_adjusted.y += ms_toggle_size.y/2.0f;
+
+			b8 is_mouse_on_button = 0;
+			{
+				// check_if_mouse_on_button
+				Rect btn_rect = rect(ms_toggle_pos.v2(), ms_toggle_size);
+				is_mouse_on_button = (
+				    (state.mouse_position.x >= btn_rect.lb.x && 
+				    state.mouse_position.y >= btn_rect.lb.y) &&
+				    (state.mouse_position.x <= btn_rect.rt.x &&
+				    state.mouse_position.y <= btn_rect.rt.y)
+				);
+			}
+			Vec3 ms_toggle_color = {0.8f, 0.8f, 0.8f};
+			if (is_mouse_on_button) {
+			    if (state.mouse_down) {
+			        // pressed
+			        //btn_state = ButtonState::PRESSED;
+				ms_toggle_color = {0.8f, 0.8f, 0.8f};
+			    } else if (state.mouse_up) {
+			        //btn_state = ButtonState::CLICK;
+				is_toggle_open = !is_toggle_open;
+			    } else {
+			        // hover
+			        //btn_state = ButtonState::HOVER;
+				ms_toggle_color = {0.6f, 0.6f, 0.6f};
+			    }
+			}
+			gl_draw_quad(
+			    state.renderer.quad,
+			    &state.renderer.ui_cam,
+			    ms_toggle_pos_adjusted,
+			    ms_toggle_size,
+			    ms_toggle_color
+			);
+			if (is_toggle_open) {
+			    {
+				// draw toggle option
+				Vec2 ms_option_size = Vec2{ms_value_size.x + ms_toggle_size.x, ms_value_size.y};
+				Vec3 ms_option_pos = Vec3{ms_value_pos.x, ms_value_pos.y - ms_option_size.y, ms_value_pos.z};
+
+				gl_draw_quad(
+				    state.renderer.quad,
+				    &state.renderer.ui_cam,
+				    Vec3{ms_option_pos.x + ms_option_size.x/2.0f,
+					ms_option_pos.y + ms_option_size.y/2.0f,
+					ms_option_pos.z},
+				    ms_option_size,
+				    Vec3{1.0f, 0.0f, 0.0f}
+				);
+			    }
+			}
+		    }
+
+		    // multi-select drop down
+		    Str256 dropdown_options[] = {
+			str256("2560x1440"),
+			str256("1920x1080"),
+			str256("1280x720")
+		    };
+
+
+		}
 	    }
     }
 
     char fmt_buffer[50];
-    sprintf(fmt_buffer, "WorldMouseX: %d, WorldMouseY: %d", mouse_position_world.x, mouse_position_world.y);
+    sprintf(fmt_buffer, "MouseX: %d, MouseY: %d", state.mouse_position.x, state.mouse_position.y);
     gl_render_text(
 	    &state.renderer,
 	    fmt_buffer,

@@ -283,7 +283,19 @@ void gl_cq_flush(GLRenderer* renderer) {
   renderer->cq_batch_count = 0;
 }
 
-void gl_setup_line(GLRenderer* renderer, u32 sp) {
+void _gl_setup_line(GLRenderer* renderer, 
+		   u32 sp) {
+    // @todo: implement this
+}
+
+void _gl_draw_line(GLRenderer *renderer,
+		  Vec3 start,
+		  Vec3 end,
+		  Vec3 color) {
+    // @todo: implement this
+}
+
+void gl_setup_line_batch(GLRenderer* renderer, u32 sp) {
     glGenVertexArrays(1, &renderer->line_vao);
     glGenBuffers(1, &renderer->line_vbo);
 
@@ -310,7 +322,7 @@ void gl_setup_line(GLRenderer* renderer, u32 sp) {
     glBindVertexArray(0);
 }
 
-void gl_draw_line(
+void gl_draw_line_batch(
 	GLRenderer *renderer,
 	Vec3 start,
 	Vec3 end,
@@ -329,11 +341,11 @@ void gl_draw_line(
 
     renderer->line_batch_count++;
     if(renderer->line_batch_count == BATCH_SIZE) {
-	gl_line_flush(renderer);
+	gl_flush_line_batch(renderer);
     }
 }
 
-void gl_line_flush(GLRenderer *renderer) {
+void gl_flush_line_batch(GLRenderer *renderer) {
     glUseProgram(renderer->line_sp);
     glEnable(GL_DEPTH_TEST);
 
@@ -504,7 +516,9 @@ void gl_render_text(
 	Vec3 position, 
 	Vec3 color, 
 	r32 font_size) {
-    // render_text
+
+
+    // shader setup
     glDisable(GL_DEPTH_TEST);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -524,16 +538,19 @@ void gl_render_text(
 
 	renderer->ui_cam.update = 0;
     }
-    glUniform3fv(
-	    glGetUniformLocation(
-		renderer->ui_text.sp, "TextColor"),
-	    1, color.data);
     glBindVertexArray(renderer->ui_text.vao);
     glBindTexture(
 	    GL_TEXTURE_2D_ARRAY, 
 	    renderer->ui_text.texture_atlas_id);
     glBindBuffer(GL_ARRAY_BUFFER, renderer->ui_text.vbo);
     glActiveTexture(GL_TEXTURE0);
+
+    glUniform3fv(
+	glGetUniformLocation(
+	    renderer->ui_text.sp, 
+	    "TextColor"
+	), 1, color.data
+    );
 
     u32 running_index = 0;
     r32 startx = position.x;

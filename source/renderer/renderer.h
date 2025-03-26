@@ -113,14 +113,14 @@ void gl_draw_colored_quad_optimized(
 void gl_cq_flush(GLRenderer *renderer);
 
 // ==================== LINE ====================
-void gl_setup_line(GLRenderer *renderer, u32 sp);
-void gl_draw_line(
+void gl_setup_line_batch(GLRenderer *renderer, u32 sp);
+void gl_draw_line_batch(
 	GLRenderer *renderer,
 	Vec3 start,
 	Vec3 end,
 	Vec3 color
 	);
-void gl_line_flush(GLRenderer *renderer);
+void gl_flush_line_batch(GLRenderer *renderer);
 
 // ==================== FONT RENDERING ====================
 void gl_setup_text(TextState *uistate);
